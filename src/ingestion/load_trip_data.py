@@ -8,9 +8,19 @@ def load_trip_data(
     raw_data_path: Path,
 ) -> DataFrame:
 
-    parquet_pattern = str(
-        raw_data_path / "yellow_tripdata_2025-*.parquet"
+    parquet_files = sorted(
+        raw_data_path.glob("yellow_tripdata_2025-*.parquet")
     )
 
-    return spark.read.parquet(parquet_pattern)
+    if not parquet_files:
+        raise FileNotFoundError(
+            f"No NYC taxi parquet files found in: {raw_data_path}"
+        )
 
+    file_paths = [str(path) for path in parquet_files]
+
+    print(f"Found {len(file_paths)} parquet files:")
+    for path in file_paths:
+        print(f"  {path}")
+
+    return spark.read.parquet(*file_paths)
