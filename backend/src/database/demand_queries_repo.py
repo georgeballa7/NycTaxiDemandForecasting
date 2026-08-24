@@ -271,30 +271,31 @@ def get_demand_over_time():
 
 
 def get_top_zones(limit: int = 10):
-    query = text(
-        """
+    query = text("""
         SELECT
-            f.location_id AS "LocationID",
+            z.location_id AS "LocationID",
             z.borough AS "Borough",
             z.zone AS "Zone",
-            z.service_zone,
-            SUM(f.demand) AS total_demand
+            z.service_zone AS "service_zone",
+            AVG(f.demand)::float AS avg_hourly_demand,
+            SUM(f.demand)::bigint AS total_demand
         FROM taxi_demand.fact_demand AS f
         JOIN taxi_demand.dim_zone AS z
             ON f.location_id = z.location_id
         GROUP BY
-            f.location_id,
+            z.location_id,
             z.borough,
             z.zone,
             z.service_zone
-        ORDER BY total_demand DESC
-        LIMIT :limit;
-        """
-    )
+        ORDER BY
+            total_demand DESC
+        LIMIT :limit
+    """)
 
     with engine.connect() as connection:
         result = connection.execute(
             query,
             {"limit": limit},
         )
+
         return _serialize_rows(result)

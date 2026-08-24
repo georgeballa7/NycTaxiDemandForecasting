@@ -1,0 +1,15 @@
+pandas
+numpy
+scipy
+scikit-learn
+pyspark
+pyarrow
+
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+python-dotenv
+
+streamlit
+plotly
