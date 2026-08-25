@@ -18,6 +18,15 @@ from backend.serving.schemas import (
     ZoneDemandOverTimeResponse,
 )
 
+from backend.serving.schemas import (
+    BusinessSummaryResponse,
+    RevenueOverTimeResponse,
+    RevenueByZoneResponse,
+    PaymentBreakdownResponse,
+    TipAnalysisResponse,
+    TipAnalysisByZoneResponse,
+)
+
 from backend.src.database.demand_queries_repo import (
     get_zones as db_get_zones,
     get_demand_by_hour as db_get_demand_by_hour,
@@ -27,6 +36,16 @@ from backend.src.database.demand_queries_repo import (
     get_zone_demand_by_hour as db_get_zone_demand_by_hour,
     get_zone_demand_by_weekday as db_get_zone_demand_by_weekday,
     get_zone_demand_over_time as db_get_zone_demand_over_time,
+)
+
+
+from backend.src.database.business_queries_repo import (
+    get_business_summary,
+    get_revenue_over_time,
+    get_revenue_by_zone,
+    get_payment_breakdown,
+    get_tip_analysis,
+    get_tip_analysis_by_zone,
 )
 
 
@@ -348,3 +367,57 @@ def get_zone_demand_over_time(
         )
 
     return result
+
+
+
+# --------------------------------------------------
+# Business Insights
+# --------------------------------------------------
+
+
+@app.get(
+    "/business/summary",
+    response_model=BusinessSummaryResponse,
+)
+def business_summary():
+    return get_business_summary()
+
+
+@app.get(
+    "/business/revenue-over-time",
+    response_model=list[RevenueOverTimeResponse],
+)
+def revenue_over_time():
+    return get_revenue_over_time()
+
+
+@app.get(
+    "/business/revenue-by-zone",
+    response_model=list[RevenueByZoneResponse],
+)
+def revenue_by_zone(limit: int = 10):
+    return get_revenue_by_zone(limit=limit)
+
+
+@app.get(
+    "/business/payment-breakdown",
+    response_model=list[PaymentBreakdownResponse],
+)
+def payment_breakdown():
+    return get_payment_breakdown()
+
+
+@app.get(
+    "/business/tip-analysis",
+    response_model=TipAnalysisResponse,
+)
+def tip_analysis():
+    return get_tip_analysis()
+
+
+@app.get(
+    "/business/tip-analysis-by-zone",
+    response_model=list[TipAnalysisByZoneResponse],
+)
+def tip_analysis_by_zone(limit: int = 10):
+    return get_tip_analysis_by_zone(limit=limit)

@@ -10,6 +10,7 @@ uvicorn
 sqlalchemy
 psycopg2-binary
 python-dotenv
+reportlab
 
 streamlit
 plotly

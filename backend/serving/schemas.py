@@ -89,3 +89,57 @@ class ZoneDemandOverTimeResponse(BaseModel):
     service_zone: str
     date: date
     total_demand: int
+
+
+class BusinessSummaryResponse(BaseModel):
+    total_trips: int
+    total_fare_amount: float
+    total_amount: float
+    total_tip_amount: float
+    avg_trip_distance: float
+
+
+class RevenueOverTimeResponse(BaseModel):
+    pickup_date: date
+    total_trips: int
+    fare_amount: float
+    total_amount: float
+    tip_amount: float
+
+
+class RevenueByZoneResponse(BaseModel):
+    LocationID: int
+    Borough: str
+    Zone: str
+    service_zone: str
+    total_trips: int
+    fare_amount: float
+    total_amount: float
+    avg_fare_per_trip: float
+
+
+class PaymentBreakdownResponse(BaseModel):
+    payment_type: int
+    payment_method: str
+    total_trips: int
+    fare_amount: float
+    total_amount: float
+    tip_amount: float
+    trip_share_pct: float
+
+
+class TipAnalysisResponse(BaseModel):
+    total_tips: float
+    avg_tip_per_trip: float
+    tip_to_fare_pct: float
+    total_credit_card_trips: int
+
+
+class TipAnalysisByZoneResponse(BaseModel):
+    LocationID: int
+    Borough: str
+    Zone: str
+    total_credit_card_trips: int
+    total_tips: float
+    avg_tip_per_trip: float
+    tip_to_fare_pct: float

@@ -1,0 +1,10 @@
+[theme]
+primaryColor = "#F5B800"
+backgroundColor = "#F8F9FA"
+secondaryBackgroundColor = "#F3F1EA"
+textColor = "#202124"
+
+[theme.sidebar]
+backgroundColor = "#F3F1EA"
+secondaryBackgroundColor = "#FFF3C4"
+textColor = "#202124"

@@ -10,13 +10,19 @@ from frontend.utils.api_client import (
     get_zones,
 )
 
+from frontend.utils.theme import (
+    CHECKER_BLACK,
+    TAXI_YELLOW,
+    apply_taxi_plotly_theme,
+)
+
 
 # --------------------------------------------------
 # Page configuration
 # --------------------------------------------------
 
 st.set_page_config(
-    page_title="Forecast | NYC Taxi Demand Forecasting",
+    page_title="Forecast | NYC Taxi Demand Forecasting and Business Analytics",
     page_icon="🔮",
     layout="wide",
 )
@@ -299,9 +305,21 @@ try:
         ),
     )
 
+    forecast_fig = apply_taxi_plotly_theme(
+        forecast_fig
+    )
+
+    # Keep the two forecast series visually distinct:
+    # actual observations in checker black, predictions in taxi yellow.
+    for trace in forecast_fig.data:
+        if trace.name == "Actual":
+            trace.line.color = CHECKER_BLACK
+        elif trace.name == "Predicted":
+            trace.line.color = TAXI_YELLOW
+
     st.plotly_chart(
         forecast_fig,
-        use_container_width=True,
+        width="stretch",
     )
 
     # --------------------------------------------------
@@ -331,9 +349,13 @@ try:
         ),
     )
 
+    error_fig = apply_taxi_plotly_theme(
+        error_fig
+    )
+
     st.plotly_chart(
         error_fig,
-        use_container_width=True,
+        width="stretch",
     )
 
     # --------------------------------------------------
@@ -492,9 +514,13 @@ try:
         ),
     )
 
+    error_level_fig = apply_taxi_plotly_theme(
+        error_level_fig
+    )
+
     st.plotly_chart(
         error_level_fig,
-        use_container_width=True,
+        width="stretch",
     )
 
     # --------------------------------------------------

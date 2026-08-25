@@ -9,6 +9,8 @@ from frontend.utils.api_client import (
     get_zones,
 )
 
+from frontend.utils.theme import apply_taxi_plotly_theme
+
 
 st.set_page_config(
     page_title="Overview | NYC Taxi Demand Forecasting",
@@ -122,9 +124,11 @@ try:
         ),
     )
 
+    fig = apply_taxi_plotly_theme(fig)
+
     st.plotly_chart(
         fig,
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -164,9 +168,11 @@ try:
         ),
     )
 
+    top_zones_fig = apply_taxi_plotly_theme(top_zones_fig)
+
     st.plotly_chart(
         top_zones_fig,
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -208,9 +214,11 @@ try:
             ),
         )
 
+        mae_fig = apply_taxi_plotly_theme(mae_fig)
+
         st.plotly_chart(
             mae_fig,
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -244,10 +252,14 @@ try:
             ),
         )
 
+        rmse_fig = apply_taxi_plotly_theme(rmse_fig)
+
         st.plotly_chart(
             rmse_fig,
-            use_container_width=True,
+            width="stretch",
         )
+
+        
         
 except Exception as exc:
     st.error(

@@ -25,3 +25,7 @@ derby.log
 
 # Logs
 *.log
+
+
+# Local Conda environment backup
+datasuite_old.yml

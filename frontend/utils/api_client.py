@@ -138,3 +138,33 @@ def get_zone_demand_over_time(
         f"/eda/zones/{location_id}/demand-over-time",
         params=params,
     )
+
+
+def get_business_summary():
+    return _get("/business/summary")
+
+
+def get_revenue_over_time():
+    return _get("/business/revenue-over-time")
+
+
+def get_revenue_by_zone(limit: int = 10):
+    return _get(
+        "/business/revenue-by-zone",
+        params={"limit": limit},
+    )
+
+
+def get_payment_breakdown():
+    return _get("/business/payment-breakdown")
+
+
+def get_tip_analysis():
+    return _get("/business/tip-analysis")
+
+
+def get_tip_analysis_by_zone(limit: int = 10):
+    return _get(
+        "/business/tip-analysis-by-zone",
+        params={"limit": limit},
+    )

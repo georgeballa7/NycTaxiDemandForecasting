@@ -11,6 +11,7 @@ from frontend.utils.api_client import (
     get_zone_demand_over_time,
 )
 
+from frontend.utils.theme import apply_taxi_plotly_theme
 
 # --------------------------------------------------
 # Page configuration
@@ -295,11 +296,12 @@ try:
             b=20,
         ),
     )
+    time_fig = apply_taxi_plotly_theme(time_fig)
 
     st.plotly_chart(
         time_fig,
-        use_container_width=True,
-    )
+        width="stretch",
+)
 
     # --------------------------------------------------
     # Demand patterns
@@ -341,9 +343,11 @@ try:
             ),
         )
 
+        hour_fig = apply_taxi_plotly_theme(hour_fig)
+
         st.plotly_chart(
             hour_fig,
-            use_container_width=True,
+            width="stretch",
         )
 
     # -----------------------------
@@ -380,12 +384,12 @@ try:
                 b=20,
             ),
         )
+        weekday_fig = apply_taxi_plotly_theme(weekday_fig)
 
         st.plotly_chart(
             weekday_fig,
-            use_container_width=True,
+            width="stretch",
         )
-
 
 
             # --------------------------------------------------
