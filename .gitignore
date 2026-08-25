@@ -29,3 +29,27 @@ derby.log
 
 # Local Conda environment backup
 datasuite_old.yml
+
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Streamlit local secrets
+.streamlit/secrets.toml
+
+# Local database / backups
+*.db
+*.sqlite
+*.sqlite3
+*.backup
+*.dump
+
+# Local OS / editor extras
+.vscode/
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
