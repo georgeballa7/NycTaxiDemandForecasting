@@ -56,3 +56,4 @@ Thumbs.db
 
 # Virtual environments
 .render-test/
+.streamlit-test/

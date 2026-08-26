@@ -1,7 +1,6 @@
-import requests
-
-
 import os
+
+import requests
 
 
 API_BASE_URL = os.getenv(
@@ -9,16 +8,18 @@ API_BASE_URL = os.getenv(
     "http://127.0.0.1:8000",
 )
 
+API_TIMEOUT = int(
+    os.getenv("API_TIMEOUT", "60")
+)
 
-def _get(endpoint: str, params: dict | None = None):
+
+def _get(endpoint, params=None):
     response = requests.get(
         f"{API_BASE_URL}{endpoint}",
         params=params,
-        timeout=10,
+        timeout=API_TIMEOUT,
     )
-
     response.raise_for_status()
-
     return response.json()
 
 def get_health():
