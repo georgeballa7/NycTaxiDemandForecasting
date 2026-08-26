@@ -11,6 +11,12 @@ This project demonstrates an end-to-end data workflow combining large-scale
 data processing, analytical data modeling, machine learning, API-based serving,
 interactive analytics, and cloud deployment.
 
+<a href="https://george-nyc-taxi-analytics.streamlit.app/">
+  <img src="docs/images/overview_1.jpeg" alt="NYC Taxi Demand Forecasting Overview">
+</a>
+
+*Interactive NYC Taxi analytics application — click the image to open the live app.*
+
 ## Architecture
 
 NYC Taxi Data → PySpark → PostgreSQL → Machine Learning → FastAPI → Streamlit
@@ -27,6 +33,27 @@ NYC Taxi Data → PySpark → PostgreSQL → Machine Learning → FastAPI → St
 - REST API serving with FastAPI
 - Interactive multi-page Streamlit application
 - Cloud deployment with Supabase, Render, and Streamlit Community Cloud
+
+### 🔮 Machine Learning Forecasting
+
+The forecasting layer compares predicted hourly taxi demand with observed
+demand across NYC taxi zones.
+
+![Actual vs Predicted Taxi Demand](docs/images/forecast_2.jpeg)
+
+### 💼 Business Analytics
+
+The business analytics layer complements demand forecasting with trip,
+revenue, payment, tip, and trip-distance metrics.
+
+![NYC Taxi Business Analytics](docs/images/business_1.jpeg)
+
+### 🎯 From Analytics to Decisions
+
+The final analytical layer combines demand patterns, forecasting, and
+commercial performance to derive practical fleet-planning insights.
+
+![NYC Taxi Strategic Insights](docs/images/strategic_1.jpeg)
 
 ## Tech Stack
 
