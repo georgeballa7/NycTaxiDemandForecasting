@@ -1,8 +1,5 @@
+streamlit
+requests
 pandas
-pyarrow
-
-fastapi
-uvicorn
-sqlalchemy
-psycopg2-binary
-python-dotenv
+plotly
+reportlab
