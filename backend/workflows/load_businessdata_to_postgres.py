@@ -1,20 +1,8 @@
-import os
-
 from pyspark.sql import functions as F
 from sqlalchemy import text
 
 from backend.src.database.connection import engine
 from backend.src.ingestion.spark_session import create_spark_session
-
-
-# --------------------------------------------------
-# Windows / local Spark configuration
-# --------------------------------------------------
-
-os.environ.setdefault(
-    "SPARK_LOCAL_IP",
-    "127.0.0.1",
-)
 
 
 # --------------------------------------------------
@@ -151,6 +139,32 @@ def build_fact_trips(business_trips):
 # Load into PostgreSQL
 # --------------------------------------------------
 
+def load_dim_payment():
+    payment_rows = [
+        {"payment_type": 1, "payment_method": "Credit card"},
+        {"payment_type": 2, "payment_method": "Cash"},
+        {"payment_type": 3, "payment_method": "No charge"},
+        {"payment_type": 4, "payment_method": "Dispute"},
+        {"payment_type": 5, "payment_method": "Unknown"},
+        {"payment_type": 6, "payment_method": "Voided trip"},
+    ]
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO taxi_analytics.dim_payment
+                    (payment_type, payment_method)
+                VALUES
+                    (:payment_type, :payment_method);
+                """
+            ),
+            payment_rows,
+        )
+
+    print("Payment dimension loaded successfully.")
+
+
 def load_fact_trips(
     fact_trips,
 ):
@@ -168,27 +182,11 @@ def load_fact_trips(
         f"{len(fact_trips_pd):,}"
     )
 
-    # Clear old fact data before reload
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                TRUNCATE TABLE
-                    taxi_business.fact_trips;
-                """
-            )
-        )
-
-    print(
-        "Existing fact_trips data "
-        "truncated."
-    )
-
     # Batch insert
     fact_trips_pd.to_sql(
         name="fact_trips",
         con=engine,
-        schema="taxi_business",
+        schema="taxi_analytics",
         if_exists="append",
         index=False,
         chunksize=5000,
@@ -215,7 +213,7 @@ def validate_load():
             MAX(pickup_date) AS max_date,
             MIN(hour) AS min_hour,
             MAX(hour) AS max_hour
-        FROM taxi_business.fact_trips;
+        FROM taxi_analytics.fact_trips;
         """
     )
 
@@ -282,6 +280,8 @@ def main():
         f"Fact rows before database load: "
         f"{fact_rows:,}"
     )
+
+    load_dim_payment()
 
     load_fact_trips(
         fact_trips

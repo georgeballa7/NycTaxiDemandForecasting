@@ -198,26 +198,12 @@ def load_demanddata_to_postgres():
 
     with engine.begin() as connection:
 
-        # These tables are derived serving data.
-        # Clear them so the workflow is reproducible.
-        connection.execute(
-            text(
-                """
-                TRUNCATE TABLE
-                    taxi_demand.fact_demand,
-                    taxi_demand.dim_hour,
-                    taxi_demand.dim_date,
-                    taxi_demand.dim_zone;
-                """
-            )
-        )
-
         print("Loading dim_zone...")
 
         dim_zone.to_sql(
             name="dim_zone",
             con=connection,
-            schema="taxi_demand",
+            schema="taxi_analytics",
             if_exists="append",
             index=False,
             method="multi",
@@ -229,7 +215,7 @@ def load_demanddata_to_postgres():
         dim_date.to_sql(
             name="dim_date",
             con=connection,
-            schema="taxi_demand",
+            schema="taxi_analytics",
             if_exists="append",
             index=False,
             method="multi",
@@ -241,7 +227,7 @@ def load_demanddata_to_postgres():
         dim_hour.to_sql(
             name="dim_hour",
             con=connection,
-            schema="taxi_demand",
+            schema="taxi_analytics",
             if_exists="append",
             index=False,
             method="multi",
@@ -253,7 +239,7 @@ def load_demanddata_to_postgres():
         fact_demand.to_sql(
             name="fact_demand",
             con=connection,
-            schema="taxi_demand",
+            schema="taxi_analytics",
             if_exists="append",
             index=False,
             method="multi",

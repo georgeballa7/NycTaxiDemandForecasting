@@ -14,7 +14,7 @@ def get_business_summary():
                 SUM(trip_distance) / NULLIF(SUM(trip_count), 0),
                 2
             ) AS avg_trip_distance
-        FROM taxi_business.fact_trips;
+        FROM taxi_analytics.fact_trips;
     """)
 
     with engine.connect() as connection:
@@ -40,7 +40,7 @@ def get_revenue_over_time():
             ROUND(SUM(fare_amount), 2) AS fare_amount,
             ROUND(SUM(total_amount), 2) AS total_amount,
             ROUND(SUM(tip_amount), 2) AS tip_amount
-        FROM taxi_business.fact_trips
+        FROM taxi_analytics.fact_trips
         GROUP BY pickup_date
         ORDER BY pickup_date;
     """)
@@ -76,8 +76,8 @@ def get_revenue_by_zone(limit: int = 10):
                 / NULLIF(SUM(f.trip_count), 0),
                 2
             ) AS avg_fare_per_trip
-        FROM taxi_business.fact_trips AS f
-        JOIN taxi_demand.dim_zone AS z
+        FROM taxi_analytics.fact_trips AS f
+        JOIN taxi_analytics.dim_zone AS z
             ON f.location_id = z.location_id
         GROUP BY
             f.location_id,
@@ -127,8 +127,8 @@ def get_payment_breakdown():
                 ),
                 2
             ) AS trip_share_pct
-        FROM taxi_business.fact_trips AS f
-        JOIN taxi_business.dim_payment AS p
+        FROM taxi_analytics.fact_trips AS f
+        JOIN taxi_analytics.dim_payment AS p
             ON f.payment_type = p.payment_type
         GROUP BY
             f.payment_type,
@@ -170,7 +170,7 @@ def get_tip_analysis():
                 2
             ) AS tip_to_fare_pct,
             SUM(trip_count)::bigint AS total_credit_card_trips
-        FROM taxi_business.fact_trips
+        FROM taxi_analytics.fact_trips
         WHERE payment_type = 1;
     """)
 
@@ -203,8 +203,8 @@ def get_tip_analysis_by_zone(limit: int = 10):
                 / NULLIF(SUM(f.fare_amount), 0),
                 2
             ) AS tip_to_fare_pct
-        FROM taxi_business.fact_trips AS f
-        JOIN taxi_demand.dim_zone AS z
+        FROM taxi_analytics.fact_trips AS f
+        JOIN taxi_analytics.dim_zone AS z
             ON f.location_id = z.location_id
         WHERE f.payment_type = 1
         GROUP BY
@@ -277,7 +277,7 @@ def get_trip_distance_analysis():
                 2
             ) AS avg_recorded_tip_per_trip
 
-        FROM taxi_business.fact_trips
+        FROM taxi_analytics.fact_trips
 
         GROUP BY
             distance_band,

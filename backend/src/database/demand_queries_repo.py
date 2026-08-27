@@ -30,7 +30,7 @@ def get_zones():
             borough AS "Borough",
             zone AS "Zone",
             service_zone
-        FROM taxi_demand.dim_zone
+        FROM taxi_analytics.dim_zone
         ORDER BY borough, zone;
         """
     )
@@ -56,8 +56,8 @@ def get_zone_demand_over_time(
             z.service_zone,
             f.pickup_date AS date,
             SUM(f.demand) AS total_demand
-        FROM taxi_demand.fact_demand AS f
-        JOIN taxi_demand.dim_zone AS z
+        FROM taxi_analytics.fact_demand AS f
+        JOIN taxi_analytics.dim_zone AS z
             ON f.location_id = z.location_id
         WHERE f.location_id = :location_id
           AND (
@@ -111,10 +111,10 @@ def get_zone_demand_by_hour(
             h.hour,
             AVG(f.demand) AS avg_demand,
             SUM(f.demand) AS total_demand
-        FROM taxi_demand.fact_demand AS f
-        JOIN taxi_demand.dim_zone AS z
+        FROM taxi_analytics.fact_demand AS f
+        JOIN taxi_analytics.dim_zone AS z
             ON f.location_id = z.location_id
-        JOIN taxi_demand.dim_hour AS h
+        JOIN taxi_analytics.dim_hour AS h
             ON f.hour = h.hour
         WHERE f.location_id = :location_id
           AND (
@@ -168,10 +168,10 @@ def get_zone_demand_by_weekday(
             d.weekday,
             AVG(f.demand) AS avg_demand,
             SUM(f.demand) AS total_demand
-        FROM taxi_demand.fact_demand AS f
-        JOIN taxi_demand.dim_zone AS z
+        FROM taxi_analytics.fact_demand AS f
+        JOIN taxi_analytics.dim_zone AS z
             ON f.location_id = z.location_id
-        JOIN taxi_demand.dim_date AS d
+        JOIN taxi_analytics.dim_date AS d
             ON f.pickup_date = d.full_date
         WHERE f.location_id = :location_id
           AND (
@@ -217,8 +217,8 @@ def get_demand_by_hour():
             h.hour,
             AVG(f.demand) AS avg_demand,
             SUM(f.demand) AS total_demand
-        FROM taxi_demand.fact_demand AS f
-        JOIN taxi_demand.dim_hour AS h
+        FROM taxi_analytics.fact_demand AS f
+        JOIN taxi_analytics.dim_hour AS h
             ON f.hour = h.hour
         GROUP BY h.hour
         ORDER BY h.hour;
@@ -238,8 +238,8 @@ def get_demand_by_weekday():
             d.weekday,
             AVG(f.demand) AS avg_demand,
             SUM(f.demand) AS total_demand
-        FROM taxi_demand.fact_demand AS f
-        JOIN taxi_demand.dim_date AS d
+        FROM taxi_analytics.fact_demand AS f
+        JOIN taxi_analytics.dim_date AS d
             ON f.pickup_date = d.full_date
         GROUP BY
             d.weekday_number,
@@ -259,7 +259,7 @@ def get_demand_over_time():
         SELECT
             f.pickup_date AS date,
             SUM(f.demand) AS total_demand
-        FROM taxi_demand.fact_demand AS f
+        FROM taxi_analytics.fact_demand AS f
         GROUP BY f.pickup_date
         ORDER BY f.pickup_date;
         """
@@ -279,8 +279,8 @@ def get_top_zones(limit: int = 10):
             z.service_zone AS "service_zone",
             AVG(f.demand)::float AS avg_hourly_demand,
             SUM(f.demand)::bigint AS total_demand
-        FROM taxi_demand.fact_demand AS f
-        JOIN taxi_demand.dim_zone AS z
+        FROM taxi_analytics.fact_demand AS f
+        JOIN taxi_analytics.dim_zone AS z
             ON f.location_id = z.location_id
         GROUP BY
             z.location_id,
