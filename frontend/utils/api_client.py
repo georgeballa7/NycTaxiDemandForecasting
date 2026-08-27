@@ -1,15 +1,8 @@
-import os
-
 import requests
 
-
-API_BASE_URL = os.getenv(
-    "API_BASE_URL",
-    "http://127.0.0.1:8000",
-)
-
-API_TIMEOUT = int(
-    os.getenv("API_TIMEOUT", "60")
+from frontend.config.settings import (
+    API_BASE_URL,
+    API_TIMEOUT,
 )
 
 

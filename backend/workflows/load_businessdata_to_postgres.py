@@ -1,6 +1,10 @@
 from pyspark.sql import functions as F
 from sqlalchemy import text
 
+from backend.src.config.settings import (
+    DATABASE_SCHEMA,
+    PROCESSED_DATA_DIR,
+)
 from backend.src.database.connection import engine
 from backend.src.ingestion.spark_session import create_spark_session
 
@@ -9,9 +13,7 @@ from backend.src.ingestion.spark_session import create_spark_session
 # Paths
 # --------------------------------------------------
 
-BUSINESS_TRIPS_PATH = (
-    "data/processed/business_trips"
-)
+BUSINESS_TRIPS_PATH = PROCESSED_DATA_DIR / "business_trips"
 
 
 # --------------------------------------------------
@@ -152,8 +154,8 @@ def load_dim_payment():
     with engine.begin() as connection:
         connection.execute(
             text(
-                """
-                INSERT INTO taxi_analytics.dim_payment
+                f"""
+                INSERT INTO {DATABASE_SCHEMA}.dim_payment
                     (payment_type, payment_method)
                 VALUES
                     (:payment_type, :payment_method);
@@ -186,7 +188,7 @@ def load_fact_trips(
     fact_trips_pd.to_sql(
         name="fact_trips",
         con=engine,
-        schema="taxi_analytics",
+        schema=DATABASE_SCHEMA,
         if_exists="append",
         index=False,
         chunksize=5000,
@@ -205,7 +207,7 @@ def load_fact_trips(
 
 def validate_load():
     query = text(
-        """
+        f"""
         SELECT
             COUNT(*) AS fact_rows,
             SUM(trip_count) AS total_trips,
@@ -213,7 +215,7 @@ def validate_load():
             MAX(pickup_date) AS max_date,
             MIN(hour) AS min_hour,
             MAX(hour) AS max_hour
-        FROM taxi_analytics.fact_trips;
+        FROM {DATABASE_SCHEMA}.fact_trips;
         """
     )
 

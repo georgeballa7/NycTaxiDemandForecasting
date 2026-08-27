@@ -1,8 +1,10 @@
-import os
-from pathlib import Path
-
 import pandas as pd
-from sqlalchemy import create_engine, text
+
+from backend.src.config.settings import (
+    APP_DATA_DIR,
+    DATABASE_SCHEMA,
+)
+from backend.src.database.connection import engine
 
 
 def load_demanddata_to_postgres():
@@ -10,35 +12,13 @@ def load_demanddata_to_postgres():
     # Paths
     # --------------------------------------------------
 
-    project_root = Path(__file__).resolve().parents[2]
-
-    zones_path = (
-        project_root
-        / "data"
-        / "app"
-        / "zones.parquet"
-    )
+    zones_path = APP_DATA_DIR / "zones.parquet"
 
     demand_path = (
-        project_root
-        / "data"
-        / "app"
+        APP_DATA_DIR
         / "eda"
         / "zone_hour_daily.parquet"
     )
-
-    # --------------------------------------------------
-    # Database connection
-    # --------------------------------------------------
-
-    database_url = os.getenv("DATABASE_URL")
-
-    if not database_url:
-        raise RuntimeError(
-            "DATABASE_URL environment variable is not set."
-        )
-
-    engine = create_engine(database_url)
 
     # --------------------------------------------------
     # Load source data
@@ -203,7 +183,7 @@ def load_demanddata_to_postgres():
         dim_zone.to_sql(
             name="dim_zone",
             con=connection,
-            schema="taxi_analytics",
+            schema=DATABASE_SCHEMA,
             if_exists="append",
             index=False,
             method="multi",
@@ -215,7 +195,7 @@ def load_demanddata_to_postgres():
         dim_date.to_sql(
             name="dim_date",
             con=connection,
-            schema="taxi_analytics",
+            schema=DATABASE_SCHEMA,
             if_exists="append",
             index=False,
             method="multi",
@@ -227,7 +207,7 @@ def load_demanddata_to_postgres():
         dim_hour.to_sql(
             name="dim_hour",
             con=connection,
-            schema="taxi_analytics",
+            schema=DATABASE_SCHEMA,
             if_exists="append",
             index=False,
             method="multi",
@@ -239,7 +219,7 @@ def load_demanddata_to_postgres():
         fact_demand.to_sql(
             name="fact_demand",
             con=connection,
-            schema="taxi_analytics",
+            schema=DATABASE_SCHEMA,
             if_exists="append",
             index=False,
             method="multi",
