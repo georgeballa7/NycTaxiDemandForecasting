@@ -131,6 +131,31 @@ def train_model():
     print(f"Random Forest MAE:  {rf_mae:.2f}")
     print(f"Random Forest RMSE: {rf_rmse:.2f}")
 
+
+    metrics_df = pd.DataFrame(
+    [
+        {
+            "model": "24h Persistence Baseline",
+            "mae": baseline_mae,
+            "rmse": baseline_rmse,
+        },
+        {
+            "model": "Random Forest",
+            "mae": rf_mae,
+            "rmse": rf_rmse,
+        },
+    ]
+    )
+
+    metrics_output_path = processed_path / "model_metrics.csv"
+
+    metrics_df.to_csv(
+        metrics_output_path,
+        index=False,
+    )
+
+    print(f"Model metrics saved to: {metrics_output_path}")
+
     # 8. Nur App-relevante Ergebnisse persistieren
     prediction_output = predictions.select(
         "LocationID",

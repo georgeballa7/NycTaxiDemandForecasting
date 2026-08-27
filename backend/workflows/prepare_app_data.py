@@ -1,4 +1,5 @@
 from pathlib import Path
+from shutil import copy2
 
 from pyspark.sql import functions as F
 
@@ -63,6 +64,10 @@ def prepare_app_data():
 
     print("App prediction data prepared successfully.")
 
+    app_path = project_root / "data" / "app"
+
+    app_path.mkdir(parents=True, exist_ok=True)
+
 
     predictions_pd = app_predictions.toPandas()
     zones_pd = app_zones.toPandas()
@@ -75,6 +80,17 @@ def prepare_app_data():
     zones_pd.to_parquet(
         app_path / "zones.parquet",
         index=False,
+    )
+
+
+    copy2(
+        processed_path / "feature_importance.csv",
+        app_path / "feature_importance.csv",
+    )
+
+    copy2(
+        processed_path / "model_metrics.csv",
+        app_path / "model_metrics.csv",
     )
 
     spark.stop()
