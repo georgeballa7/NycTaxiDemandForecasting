@@ -18,18 +18,34 @@ NYC TLC Yellow Taxi data is processed with PySpark, transformed into demand and 
 
 ## Architecture
 
-```text
-NYC TLC Yellow Taxi Parquet + Zone Lookup
-                  ↓
-              PySpark
-                  ↓
-       Data Pipeline / ML Pipeline
-            ↙             ↘
-PostgreSQL / Supabase    App & ML Artifacts
-            ↘             ↙
-             FastAPI on Render
-                    ↓
-        Streamlit Community Cloud
+```mermaid
+flowchart LR
+    A["NYC TLC Yellow Taxi Data<br/>Parquet + Zone Lookup"]
+
+    subgraph PROCESSING["Offline Data & ML Processing"]
+        B["PySpark<br/>Data Processing"]
+        C["Data Pipeline"]
+        D["ML Pipeline<br/>Random Forest"]
+        B --> C
+        C --> D
+    end
+
+    subgraph STORAGE["Analytics & Artifacts"]
+        E[("PostgreSQL / Supabase<br/>taxi_analytics")]
+        F[("App & ML Artifacts<br/>Parquet / CSV")]
+    end
+
+    subgraph SERVING["Application Layer"]
+        G["FastAPI<br/>Render"]
+        H["Streamlit<br/>Community Cloud"]
+    end
+
+    A --> B
+    C --> E
+    D --> F
+    E --> G
+    F --> G
+    G --> H
 ```
 
 The project deliberately separates **offline processing** from **runtime serving**. PySpark performs large-scale transformations and model training offline; the deployed application consumes PostgreSQL tables and lightweight precomputed artifacts rather than starting Spark for user requests.
@@ -44,17 +60,62 @@ Pipeline orchestration is organized into three entry points:
 
 PostgreSQL uses one unified schema, **`taxi_analytics`**, with shared dimensions and separate facts for demand and business analytics:
 
-```text
-taxi_analytics
-├── dim_zone
-├── dim_date
-├── dim_hour
-├── dim_payment
-├── fact_demand
-└── fact_trips
+```mermaid
+erDiagram
+    DIM_ZONE ||--o{ FACT_DEMAND : "location"
+    DIM_DATE ||--o{ FACT_DEMAND : "date"
+    DIM_HOUR ||--o{ FACT_DEMAND : "hour"
+
+    DIM_ZONE ||--o{ FACT_TRIPS : "location"
+    DIM_DATE ||--o{ FACT_TRIPS : "date"
+    DIM_HOUR ||--o{ FACT_TRIPS : "hour"
+    DIM_PAYMENT ||--o{ FACT_TRIPS : "payment"
+
+    DIM_ZONE {
+        int location_id PK
+        string borough
+        string zone
+        string service_zone
+    }
+
+    DIM_DATE {
+        date full_date PK
+        int year
+        int month
+        string weekday
+        boolean is_weekend
+    }
+
+    DIM_HOUR {
+        int hour PK
+        string day_part
+    }
+
+    DIM_PAYMENT {
+        int payment_type PK
+        string payment_method
+    }
+
+    FACT_DEMAND {
+        int location_id FK
+        date pickup_date FK
+        int hour FK
+        int demand
+    }
+
+    FACT_TRIPS {
+        int location_id FK
+        date pickup_date FK
+        int hour FK
+        int payment_type FK
+        int trip_count
+        decimal total_amount
+        decimal tip_amount
+        decimal trip_distance
+    }
 ```
 
-This supports demand analysis by zone/date/hour while also enabling revenue, payment, tip, distance, toll, surcharge, and trip-volume analysis.
+This supports demand analysis by zone/date/hour while also enabling revenue, payment, tip, distance, toll, surcharge, and trip-volume analysis. The README shows the core analytical relationships; the complete table definitions are documented in [`docs/data_model.md`](docs/data_model.md).
 
 ## Key Features
 
