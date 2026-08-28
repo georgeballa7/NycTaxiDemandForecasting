@@ -1,8 +1,8 @@
 from datetime import date
-from pathlib import Path
-
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+
+from backend.src.config.settings import APP_DATA_DIR
 
 from backend.serving.schemas import (
     ZoneResponse,
@@ -59,24 +59,21 @@ app = FastAPI(
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-APP_DATA_PATH = PROJECT_ROOT / "data" / "app"
-
 
 # --------------------------------------------------
 # Load app-ready datasets
 # --------------------------------------------------
 
 predictions_df = pd.read_parquet(
-    APP_DATA_PATH / "predictions.parquet"
+    APP_DATA_DIR / "predictions.parquet"
 )
 
 metrics_df = pd.read_csv(
-    APP_DATA_PATH / "model_metrics.csv"
+    APP_DATA_DIR / "model_metrics.csv"
 )
 
 feature_importance_df = pd.read_csv(
-    APP_DATA_PATH / "feature_importance.csv"
+    APP_DATA_DIR / "feature_importance.csv"
 )
 
 
