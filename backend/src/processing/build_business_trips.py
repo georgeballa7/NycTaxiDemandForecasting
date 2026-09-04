@@ -8,7 +8,26 @@ from backend.src.ingestion.load_trip_data import load_trip_data
 from backend.src.processing.clean_trip_data import clean_trip_data
 
 
-def build_business_trips():
+def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    if not 1 <= month <= 12:
+        raise ValueError(
+            f"month must be between 1 and 12. Received: {month}"
+        )
+
+    start_date = datetime(year, month, 1)
+
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1)
+    else:
+        end_date = datetime(year, month + 1, 1)
+
+    return start_date, end_date
+
+
+def build_business_trips(
+    year: int | None = None,
+    month: int | None = None,
+):
     spark = create_spark_session()
 
     project_root = Path(__file__).resolve().parents[2]
@@ -26,6 +45,11 @@ def build_business_trips():
         / "business_trips"
     )
 
+    if (year is None) != (month is None):
+        raise ValueError(
+            "year and month must either both be provided or both be omitted."
+        )
+
     # --------------------------------------------------
     # 1. Load raw trip data
     # --------------------------------------------------
@@ -33,16 +57,25 @@ def build_business_trips():
     trips = load_trip_data(
         spark=spark,
         raw_data_path=raw_data_path,
+        year=year,
+        month=month,
     )
 
     # --------------------------------------------------
     # 2. Apply existing general cleaning
     # --------------------------------------------------
 
+    if year is not None and month is not None:
+        start_date, end_date = _month_bounds(year, month)
+    else:
+        # Preserve the established Jan-Jun 2025 full-refresh behaviour.
+        start_date = datetime(2025, 1, 1)
+        end_date = datetime(2025, 7, 1)
+
     cleaned_trips = clean_trip_data(
         trips,
-        start_date=datetime(2025, 1, 1),
-        end_date=datetime(2025, 7, 1),
+        start_date=start_date,
+        end_date=end_date,
     )
 
     # --------------------------------------------------
