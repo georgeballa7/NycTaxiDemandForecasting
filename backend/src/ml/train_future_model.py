@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pandas as pd
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.feature import VectorAssembler
@@ -223,6 +224,28 @@ def train_future_model():
     print(
         f"Average RF RMSE:       "
         f"{average_rf_rmse:.2f}"
+    )
+
+    metrics_path = (
+        project_root
+        / "data"
+        / "processed"
+        / "future_model_backtest.csv"
+    )
+
+    metrics_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    pd.DataFrame(results).to_csv(
+        metrics_path,
+        index=False,
+    )
+
+    print(
+        f"Future-model backtest saved to: "
+        f"{metrics_path}"
     )
 
     model_data.unpersist()
