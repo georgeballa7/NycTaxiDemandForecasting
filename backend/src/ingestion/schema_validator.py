@@ -9,7 +9,6 @@ from pyspark.sql.types import (
     FloatType,
     DoubleType,
     DecimalType,
-    StringType,
     TimestampType,
     TimestampNTZType,
 )
