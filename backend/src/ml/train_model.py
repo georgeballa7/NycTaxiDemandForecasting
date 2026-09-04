@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 import pandas as pd
 
@@ -31,7 +32,7 @@ FEATURE_COLUMNS = [
 def train_model():
     spark = create_spark_session("NYC Taxi Demand - ML")
 
-    project_root = Path(__file__).resolve().parents[2]
+    project_root = Path(__file__).resolve().parents[3]
     processed_path = project_root / "data" / "processed"
 
     # 1. Persistierte Features laden
@@ -47,13 +48,32 @@ def train_model():
         .withColumn("demand", F.col("demand").cast("double"))
     )
 
-    # 3. Zeitbasierter Split
+    # 3. Dynamischer zeitbasierter Split:
+    # letzter vorhandener Monat = Testset
+    latest_timestamp = (
+        model_data
+        .agg(F.max("pickup_hour").alias("latest"))
+        .first()["latest"]
+    )
+
+    if latest_timestamp is None:
+        raise RuntimeError("No feature data available for model training.")
+
+    test_start = datetime(
+        latest_timestamp.year,
+        latest_timestamp.month,
+        1,
+    )
+
+    print(f"Latest data timestamp: {latest_timestamp}")
+    print(f"Test period starts:    {test_start:%Y-%m-%d}")
+
     train_data = model_data.filter(
-        F.col("pickup_hour") < F.lit("2025-06-01 00:00:00")
+        F.col("pickup_hour") < F.lit(test_start)
     )
 
     test_data = model_data.filter(
-        F.col("pickup_hour") >= F.lit("2025-06-01 00:00:00")
+        F.col("pickup_hour") >= F.lit(test_start)
     )
 
     print(f"Training rows: {train_data.count():,}")
@@ -102,12 +122,11 @@ def train_model():
         seed=42,
     )
 
-
     rf_model = rf.fit(train_ml)
 
     importance_df = pd.DataFrame({
-    "feature": FEATURE_COLUMNS,
-    "importance": rf_model.featureImportances.toArray(),
+        "feature": FEATURE_COLUMNS,
+        "importance": rf_model.featureImportances.toArray(),
     }).sort_values(
         "importance",
         ascending=False,
@@ -116,8 +135,8 @@ def train_model():
     importance_output_path = processed_path / "feature_importance.csv"
 
     importance_df.to_csv(
-    importance_output_path,
-    index=False,
+        importance_output_path,
+        index=False,
     )
 
     print(f"Feature importances saved to: {importance_output_path}")
@@ -131,20 +150,19 @@ def train_model():
     print(f"Random Forest MAE:  {rf_mae:.2f}")
     print(f"Random Forest RMSE: {rf_rmse:.2f}")
 
-
     metrics_df = pd.DataFrame(
-    [
-        {
-            "model": "24h Persistence Baseline",
-            "mae": baseline_mae,
-            "rmse": baseline_rmse,
-        },
-        {
-            "model": "Random Forest",
-            "mae": rf_mae,
-            "rmse": rf_rmse,
-        },
-    ]
+        [
+            {
+                "model": "24h Persistence Baseline",
+                "mae": baseline_mae,
+                "rmse": baseline_rmse,
+            },
+            {
+                "model": "Random Forest",
+                "mae": rf_mae,
+                "rmse": rf_rmse,
+            },
+        ]
     )
 
     metrics_output_path = processed_path / "model_metrics.csv"
@@ -168,7 +186,6 @@ def train_model():
         prediction_output,
         processed_path / "predictions",
     )
-
 
     model_path = processed_path / "models" / "random_forest"
 
