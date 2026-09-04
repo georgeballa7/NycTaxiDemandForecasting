@@ -3,6 +3,7 @@ from datetime import datetime
 from airflow.sdk import dag, task
 
 from backend.workflows.monthly_ingestion import run_backfill
+from backend.workflows.ml_pipeline import run_ml_pipeline
 
 
 @dag(
@@ -39,7 +40,33 @@ def nyc_taxi_backfill():
             ),
         )
 
-    process_backfill()
+    @task
+    def retrain_model(processed_months: list[str]):
+        if not processed_months:
+            print(
+                "Backfill processed no new TLC months. "
+                "Skipping ML retraining."
+            )
+            return {
+                "retrained": False,
+                "processed_months": [],
+            }
+
+        print(
+            f"Backfill processed {len(processed_months)} month(s): "
+            f"{', '.join(processed_months)}. "
+            "Starting ML retraining."
+        )
+
+        run_ml_pipeline()
+
+        return {
+            "retrained": True,
+            "processed_months": processed_months,
+        }
+
+    processed_months = process_backfill()
+    retrain_model(processed_months)
 
 
 nyc_taxi_backfill()
