@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+data/
+airflow/logs/
+airflow/config/simple_auth_manager_passwords.json
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.venv/
+venv/
+.render-test/
+.streamlit-test/
