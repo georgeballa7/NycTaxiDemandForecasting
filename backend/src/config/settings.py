@@ -24,10 +24,13 @@ APP_DATA_DIR = DATA_DIR / "app"
 # --------------------------------------------------
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+SUPABASE_DATABASE_URL = os.getenv("SUPABASE_DATABASE_URL")
 
 if not DATABASE_URL:
     raise RuntimeError(
         "DATABASE_URL environment variable is not set."
     )
+
+DATABASE_SCHEMA = "taxi_analytics"
 
 DATABASE_SCHEMA = "taxi_analytics"

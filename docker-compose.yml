@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: nyc-taxi-airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  airflow-init:
+    image: apache/airflow:3.3.1
+    container_name: nyc-taxi-airflow-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &airflow-environment
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-apiserver:8080/execution/"
+      AIRFLOW__API_AUTH__JWT_SECRET: "nyc-taxi-airflow-local-dev-jwt-secret-2026-change-me-very-long"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: "/opt/airflow/config/simple_auth_manager_passwords.json"
+      PYTHONPATH: /opt/airflow/project
+    volumes: &airflow-volumes
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/config:/opt/airflow/config
+      - ./backend:/opt/airflow/project/backend
+      - ./data:/opt/airflow/project/data
+    command: >
+      bash -c "airflow db migrate"
+
+  airflow-apiserver:
+    image: apache/airflow:3.3.1
+    container_name: nyc-taxi-airflow-apiserver
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *airflow-environment
+    volumes:
+      *airflow-volumes
+    ports:
+      - "8080:8080"
+    command: api-server
+    restart: unless-stopped
+
+  airflow-scheduler:
+    image: apache/airflow:3.3.1
+    container_name: nyc-taxi-airflow-scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *airflow-environment
+    volumes:
+      *airflow-volumes
+    command: scheduler
+    restart: unless-stopped
+
+  airflow-dag-processor:
+    image: apache/airflow:3.3.1
+    container_name: nyc-taxi-airflow-dag-processor
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *airflow-environment
+    volumes:
+      *airflow-volumes
+    command: dag-processor
+    restart: unless-stopped
+
+volumes:
+  airflow-postgres-db:
