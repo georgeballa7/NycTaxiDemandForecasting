@@ -21,6 +21,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+        
     environment: &airflow-environment
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -29,7 +30,12 @@ services:
       AIRFLOW__API_AUTH__JWT_SECRET: "nyc-taxi-airflow-local-dev-jwt-secret-2026-change-me-very-long"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: "/opt/airflow/config/simple_auth_manager_passwords.json"
+
+      DATABASE_URL: "${AIRFLOW_DATABASE_URL}"
+      SUPABASE_DATABASE_URL: "${SUPABASE_DATABASE_URL}"
+
       PYTHONPATH: /opt/airflow/project
+
     volumes: &airflow-volumes
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs

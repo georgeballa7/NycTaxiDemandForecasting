@@ -32,5 +32,3 @@ if not DATABASE_URL:
     )
 
 DATABASE_SCHEMA = "taxi_analytics"
-
-DATABASE_SCHEMA = "taxi_analytics"
