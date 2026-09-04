@@ -1,6 +1,5 @@
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
-from datetime import date
 
 
 BASE_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data"
@@ -21,16 +20,36 @@ def next_month(year: int, month: int) -> tuple[int, int]:
 def is_month_available(year: int, month: int) -> bool:
     url = build_yellow_taxi_url(year, month)
 
-    request = Request(url, method="HEAD")
-
     try:
-        with urlopen(request, timeout=15) as response:
+        head_request = Request(url, method="HEAD")
+
+        with urlopen(head_request, timeout=15) as response:
             return response.status == 200
 
     except HTTPError as exc:
         if exc.code == 404:
             return False
-        raise
+
+        if exc.code != 403:
+            raise
+
+        # Some TLC/CDN responses reject HEAD requests with 403.
+        # Fall back to a minimal ranged GET before deciding that
+        # the monthly file is unavailable.
+        get_request = Request(
+            url,
+            headers={"Range": "bytes=0-0"},
+            method="GET",
+        )
+
+        try:
+            with urlopen(get_request, timeout=15) as response:
+                return response.status in (200, 206)
+
+        except HTTPError as get_exc:
+            if get_exc.code in (403, 404):
+                return False
+            raise
 
     except URLError as exc:
         raise ConnectionError(
