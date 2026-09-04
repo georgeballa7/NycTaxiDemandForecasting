@@ -136,7 +136,22 @@ def run_backfill(
             "end_year and end_month must either both be provided or omitted."
         )
 
-    year, month = start_year, start_month
+    last_success = get_last_successful_month(engine)
+    next_year, next_month_value = next_month(
+        last_success.year,
+        last_success.month,
+    )
+
+    year, month = max(
+        (start_year, start_month),
+        (next_year, next_month_value),
+    )
+
+    print(
+        f"Backfill starting at {year}-{month:02d}; "
+        f"last successful month is {last_success:%Y-%m}."
+    )
+
     processed_months = []
 
     while True:
