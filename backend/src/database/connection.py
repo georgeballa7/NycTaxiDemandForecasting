@@ -9,7 +9,11 @@ from backend.src.config.settings import (
 engine = create_engine(DATABASE_URL)
 
 supabase_engine = (
-    create_engine(SUPABASE_DATABASE_URL)
+    create_engine(
+        SUPABASE_DATABASE_URL,
+        pool_pre_ping=True,
+        pool_recycle=300,
+    )
     if SUPABASE_DATABASE_URL
     else None
 )
