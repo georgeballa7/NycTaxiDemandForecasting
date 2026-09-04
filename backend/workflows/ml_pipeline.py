@@ -5,7 +5,9 @@ from backend.src.ml.train_model import train_model
 def run_ml_pipeline():
     print("Starting ML pipeline...")
 
-    train_model()
+    spark = train_model()
+    spark.stop()
+
     prepare_app_data()
 
     print("ML pipeline completed successfully.")
