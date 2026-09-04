@@ -1,3 +1,9 @@
+x-airflow-image: &airflow-image
+  build:
+    context: .
+    dockerfile: airflow/Dockerfile
+  image: nyc-taxi-airflow:3.3.1
+
 services:
   postgres:
     image: postgres:16
@@ -16,12 +22,11 @@ services:
     restart: unless-stopped
 
   airflow-init:
-    image: apache/airflow:3.3.1
+    <<: *airflow-image
     container_name: nyc-taxi-airflow-init
     depends_on:
       postgres:
         condition: service_healthy
-        
     environment: &airflow-environment
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -30,12 +35,9 @@ services:
       AIRFLOW__API_AUTH__JWT_SECRET: "nyc-taxi-airflow-local-dev-jwt-secret-2026-change-me-very-long"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: "/opt/airflow/config/simple_auth_manager_passwords.json"
-
       DATABASE_URL: "${AIRFLOW_DATABASE_URL}"
       SUPABASE_DATABASE_URL: "${SUPABASE_DATABASE_URL}"
-
       PYTHONPATH: /opt/airflow/project
-
     volumes: &airflow-volumes
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
@@ -47,7 +49,7 @@ services:
       bash -c "airflow db migrate"
 
   airflow-apiserver:
-    image: apache/airflow:3.3.1
+    <<: *airflow-image
     container_name: nyc-taxi-airflow-apiserver
     depends_on:
       postgres:
@@ -56,15 +58,14 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *airflow-environment
-    volumes:
-      *airflow-volumes
+    volumes: *airflow-volumes
     ports:
       - "8080:8080"
     command: api-server
     restart: unless-stopped
 
   airflow-scheduler:
-    image: apache/airflow:3.3.1
+    <<: *airflow-image
     container_name: nyc-taxi-airflow-scheduler
     depends_on:
       postgres:
@@ -73,13 +74,12 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *airflow-environment
-    volumes:
-      *airflow-volumes
+    volumes: *airflow-volumes
     command: scheduler
     restart: unless-stopped
 
   airflow-dag-processor:
-    image: apache/airflow:3.3.1
+    <<: *airflow-image
     container_name: nyc-taxi-airflow-dag-processor
     depends_on:
       postgres:
@@ -88,8 +88,7 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *airflow-environment
-    volumes:
-      *airflow-volumes
+    volumes: *airflow-volumes
     command: dag-processor
     restart: unless-stopped
 
