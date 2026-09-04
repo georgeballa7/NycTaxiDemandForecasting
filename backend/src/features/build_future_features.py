@@ -24,8 +24,6 @@ CALENDAR_FEATURE_COLUMNS = [
 PROFILE_FEATURE_COLUMNS = [
     "zone_hour_mean",
     "zone_dow_hour_mean",
-    "zone_month_mean",
-    "zone_month_hour_mean",
 ]
 
 
@@ -245,101 +243,6 @@ def add_historical_profile_features(
         )
     )
 
-    month_zone = (
-        data
-        .groupBy(
-            "calendar_month",
-            "LocationID",
-        )
-        .agg(
-            F.sum("demand").alias("_sum"),
-            F.count("demand").alias("_count"),
-        )
-        .withColumn(
-            "month_number",
-            F.month("calendar_month"),
-        )
-    )
-
-    zone_month_window = (
-        Window
-        .partitionBy(
-            "LocationID",
-            "month_number",
-        )
-        .orderBy("calendar_month")
-        .rowsBetween(
-            Window.unboundedPreceding,
-            -1,
-        )
-    )
-
-    month_zone = (
-        month_zone
-        .withColumn(
-            "zone_month_mean",
-            F.sum("_sum").over(
-                zone_month_window
-            )
-            / F.sum("_count").over(
-                zone_month_window
-            ),
-        )
-        .select(
-            "calendar_month",
-            "LocationID",
-            "zone_month_mean",
-        )
-    )
-
-    month_zone_month_hour = (
-        data
-        .groupBy(
-            "calendar_month",
-            "LocationID",
-            "month",
-            "hour",
-        )
-        .agg(
-            F.sum("demand").alias("_sum"),
-            F.count("demand").alias("_count"),
-        )
-    )
-
-    zone_month_hour_window = (
-        Window
-        .partitionBy(
-            "LocationID",
-            "month",
-            "hour",
-        )
-        .orderBy("calendar_month")
-        .rowsBetween(
-            Window.unboundedPreceding,
-            -1,
-        )
-    )
-
-    month_zone_month_hour = (
-        month_zone_month_hour
-        .withColumn(
-            "zone_month_hour_mean",
-            F.sum("_sum").over(
-                zone_month_hour_window
-            )
-            / F.sum("_count").over(
-                zone_month_hour_window
-            ),
-        )
-        .select(
-            "calendar_month",
-            "LocationID",
-            "month",
-            "hour",
-            "zone_month_hour_mean",
-        )
-    )
-
     return (
         data
         .join(
@@ -357,24 +260,6 @@ def add_historical_profile_features(
                 "calendar_month",
                 "LocationID",
                 "day_of_week",
-                "hour",
-            ],
-            "left",
-        )
-        .join(
-            month_zone,
-            [
-                "calendar_month",
-                "LocationID",
-            ],
-            "left",
-        )
-        .join(
-            month_zone_month_hour,
-            [
-                "calendar_month",
-                "LocationID",
-                "month",
                 "hour",
             ],
             "left",
