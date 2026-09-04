@@ -13,7 +13,7 @@ def upsert_dataframe(
     db_engine: Engine,
     schema: str,
     update_columns: Sequence[str] | None = None,
-    chunk_size: int = 5000,
+    chunk_size: int = 1000,
 ) -> None:
     """Insert a DataFrame into PostgreSQL and update matching primary keys."""
 
