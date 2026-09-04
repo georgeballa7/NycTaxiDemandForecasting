@@ -30,7 +30,7 @@ def build_business_trips(
 ):
     spark = create_spark_session()
 
-    project_root = Path(__file__).resolve().parents[2]
+    project_root = Path(__file__).resolve().parents[3]
 
     raw_data_path = (
         project_root
