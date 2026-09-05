@@ -195,8 +195,14 @@ def get_historical_predictions(
         JOIN taxi_analytics.dim_zone AS z
           ON z.location_id = p.location_id
         WHERE p.location_id = :location_id
-          AND (:start_date IS NULL OR p.pickup_hour::date >= :start_date)
-          AND (:end_date IS NULL OR p.pickup_hour::date <= :end_date)
+          AND (
+              CAST(:start_date AS DATE) IS NULL
+              OR p.pickup_hour::date >= CAST(:start_date AS DATE)
+          )
+          AND (
+              CAST(:end_date AS DATE) IS NULL
+              OR p.pickup_hour::date <= CAST(:end_date AS DATE)
+          )
         ORDER BY p.pickup_hour;
         """
     )
