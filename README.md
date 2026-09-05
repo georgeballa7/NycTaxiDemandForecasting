@@ -12,12 +12,6 @@ NYC TLC Yellow Taxi data is processed with PySpark and incrementally orchestrate
 
 The currently validated data range is **January 2025 through May 2026**.
 
-<a href="https://george-nyc-taxi-analytics.streamlit.app/">
-  <img src="docs/images/overview_1.jpeg" alt="NYC Taxi Demand Forecasting Overview">
-</a>
-
-*Interactive NYC Taxi analytics application — click the image to open the live app.*
-
 ## Architecture
 
 ```mermaid
@@ -150,8 +144,6 @@ Latest validated historical retraining using data through May 2026:
 
 The Random Forest remains the stronger model for historical/short-horizon evaluation where recent lag features are available.
 
-![Actual vs Predicted Taxi Demand](docs/images/forecast_2.jpeg)
-
 ### Production Future Forecast
 
 Arbitrary future dates cannot rely on unknown future lag values. The project therefore evaluates a separate long-horizon forecasting approach with rolling future-month backtests.
@@ -187,13 +179,9 @@ The business analytics layer complements demand forecasting with commercial and 
 - tolls and congestion-related charges
 - borough and taxi-zone performance
 
-![NYC Taxi Business Analytics](docs/images/business_1.jpeg)
-
 ## 🎯 From Analytics to Decisions
 
 The Strategic Insights layer combines demand patterns, forecasting results and commercial performance to support practical interpretation of when and where taxi activity is strongest.
-
-![NYC Taxi Strategic Insights](docs/images/strategic_1.jpeg)
 
 ## Serving Strategy
 
