@@ -15,6 +15,17 @@ def _get(endpoint, params=None):
     response.raise_for_status()
     return response.json()
 
+
+def _post(endpoint, payload):
+    response = requests.post(
+        f"{API_BASE_URL}{endpoint}",
+        json=payload,
+        timeout=API_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 def get_health():
     return _get("/health")
 
@@ -29,6 +40,21 @@ def get_metrics():
 
 def get_feature_importance():
     return _get("/feature-importance")
+
+
+def predict_future_demand(
+    location_id: int,
+    forecast_datetime,
+):
+    return _post(
+        "/predict",
+        {
+            "location_id": location_id,
+            "forecast_datetime": (
+                forecast_datetime.isoformat()
+            ),
+        },
+    )
 
 
 def get_demand_by_hour():
