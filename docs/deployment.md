@@ -76,7 +76,8 @@ Supabase PostgreSQL
 | `SUPABASE_DATABASE_URL` | Airflow/ML publisher | Production Supabase publication |
 | `API_BASE_URL` | Streamlit | Render FastAPI base URL |
 | `API_TIMEOUT` | Streamlit | HTTP timeout |
-| `SLACK_WEBHOOK_URL` | Airflow | Pipeline notifications; configuration planned/in progress |
+| `SLACK_WEBHOOK_URL` | Airflow | Slack notifications for retraining success and pipeline/task failures |
+| `AIRFLOW_JWT_SECRET` | Airflow | Local Airflow API authentication JWT secret |
 
 Secrets must not be committed. Local `.env` files and Streamlit local secrets are ignored by Git.
 
@@ -120,13 +121,16 @@ Normal behavior:
 
 1. Read the last successfully processed TLC month.
 2. Check whether the next month is available.
-3. If unavailable, finish successfully without retraining.
+3. If unavailable, finish successfully without retraining or a Slack success notification.
 4. If available, process at most that one month.
 5. Update local PostgreSQL and Supabase analytical data.
 6. Run the shared ML pipeline.
 7. Publish the future forecast snapshot to local PostgreSQL and Supabase.
+8. Send a Slack success notification after successful retraining.
 
-A successful no-op is expected behavior when TLC has not yet published the next month.
+Pipeline/task failures trigger the configured Slack failure callback.
+
+A successful no-op is expected behavior when TLC has not yet published the next month and intentionally remains silent in Slack.
 
 ## Post-retraining manual deployment step
 
@@ -191,15 +195,17 @@ Therefore, after a successful monthly database load, DB-backed Streamlit pages c
 
 ## Slack notifications
 
-The monthly Airflow DAG contains notification logic for:
+Slack notifications are operational for the scheduled `nyc_taxi_monthly_ingestion` DAG.
 
-- successful retraining after a newly processed month
-- pipeline/task failures
-- no Slack success message for normal daily no-op runs
+Notification behavior:
 
-The success message also reminds the operator to review and commit refreshed historical `data/app` artifacts.
+- **new TLC month + successful ML retraining** → Slack success notification
+- **pipeline/task failure** → Slack failure notification with run/task context and an Airflow log URL when available
+- **normal daily no-op** because the next TLC month is unavailable → no Slack message
 
-To activate this feature, configure `SLACK_WEBHOOK_URL` in the Airflow Docker environment. The webhook secret must never be committed to Git. Slack setup and end-to-end notification testing should be completed before relying on these alerts operationally.
+The success message reminds the operator to review and commit refreshed historical `data/app` artifacts.
+
+`SLACK_WEBHOOK_URL` is supplied through the local Airflow Docker environment and must never be committed to Git. The webhook connection and failure-notification path have been smoke-tested successfully. The success path is intentionally left to the next genuine monthly retraining run rather than forcing an artificial retraining.
 
 ## Runtime boundaries
 
