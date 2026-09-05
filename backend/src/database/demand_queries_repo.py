@@ -1,10 +1,9 @@
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import text
 
 from backend.src.database.connection import engine
-
-from decimal import Decimal
 
 
 def _serialize_rows(result):
@@ -20,6 +19,21 @@ def _serialize_rows(result):
         rows.append(record)
 
     return rows
+
+
+def get_demand_date_range():
+    query = text(
+        """
+        SELECT
+            MIN(pickup_date) AS min_date,
+            MAX(pickup_date) AS max_date
+        FROM taxi_analytics.fact_demand;
+        """
+    )
+
+    with engine.connect() as connection:
+        row = connection.execute(query).one()
+        return dict(row._mapping)
 
 
 def get_zones():
@@ -39,7 +53,6 @@ def get_zones():
         result = connection.execute(query)
 
         return _serialize_rows(result)
-
 
 
 def get_zone_demand_over_time(
@@ -91,9 +104,6 @@ def get_zone_demand_over_time(
         )
 
         return _serialize_rows(result)
-
-
-
 
 
 def get_zone_demand_by_hour(
@@ -150,8 +160,6 @@ def get_zone_demand_by_hour(
         return _serialize_rows(result)
 
 
-
-
 def get_zone_demand_by_weekday(
     location_id: int,
     start_date: date | None = None,
@@ -206,8 +214,6 @@ def get_zone_demand_by_weekday(
         )
 
         return _serialize_rows(result)
-
-
 
 
 def get_demand_by_hour():
