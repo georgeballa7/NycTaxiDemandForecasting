@@ -94,3 +94,47 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.pipeline_runs (
     CONSTRAINT chk_pipeline_status
         CHECK (status IN ('RUNNING', 'SUCCESS', 'FAILED'))
 );
+
+
+CREATE TABLE IF NOT EXISTS taxi_analytics.future_demand_profile (
+    location_id INTEGER NOT NULL,
+    day_of_week SMALLINT NOT NULL,
+    hour SMALLINT NOT NULL,
+    predicted_demand DOUBLE PRECISION NOT NULL,
+
+    CONSTRAINT pk_future_demand_profile PRIMARY KEY (
+        location_id, day_of_week, hour
+    ),
+    CONSTRAINT fk_future_demand_profile_zone FOREIGN KEY (location_id)
+        REFERENCES taxi_analytics.dim_zone (location_id),
+    CONSTRAINT chk_future_profile_weekday
+        CHECK (day_of_week BETWEEN 1 AND 7),
+    CONSTRAINT chk_future_profile_hour
+        CHECK (hour BETWEEN 0 AND 23),
+    CONSTRAINT chk_future_profile_demand
+        CHECK (predicted_demand >= 0)
+);
+
+
+CREATE TABLE IF NOT EXISTS taxi_analytics.future_model_metric (
+    model VARCHAR PRIMARY KEY,
+    mae DOUBLE PRECISION NOT NULL,
+    rmse DOUBLE PRECISION NOT NULL,
+    backtest_months INTEGER NOT NULL,
+
+    CONSTRAINT chk_future_metric_months
+        CHECK (backtest_months > 0)
+);
+
+
+CREATE TABLE IF NOT EXISTS taxi_analytics.future_forecast_metadata (
+    id SMALLINT PRIMARY KEY DEFAULT 1,
+    production_model VARCHAR NOT NULL,
+    trained_through TIMESTAMP NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL,
+    profile_dimensions JSONB NOT NULL,
+    profile_rows INTEGER NOT NULL,
+
+    CONSTRAINT chk_future_metadata_singleton CHECK (id = 1),
+    CONSTRAINT chk_future_metadata_rows CHECK (profile_rows >= 0)
+);
