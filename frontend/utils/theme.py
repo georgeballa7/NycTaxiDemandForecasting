@@ -1,5 +1,6 @@
 import streamlit as st
 
+# Shared visual theme for the Streamlit application.
 
 TAXI_YELLOW = "#F5B800"
 CHECKER_BLACK = "#202124"
