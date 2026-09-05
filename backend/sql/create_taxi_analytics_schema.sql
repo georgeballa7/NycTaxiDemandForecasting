@@ -96,6 +96,46 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.pipeline_runs (
 );
 
 
+CREATE TABLE IF NOT EXISTS taxi_analytics.historical_model_metric (
+    model VARCHAR PRIMARY KEY,
+    mae DOUBLE PRECISION NOT NULL,
+    rmse DOUBLE PRECISION NOT NULL,
+    trained_through TIMESTAMP NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL
+);
+
+
+CREATE TABLE IF NOT EXISTS taxi_analytics.historical_feature_importance (
+    feature VARCHAR PRIMARY KEY,
+    importance DOUBLE PRECISION NOT NULL,
+    trained_through TIMESTAMP NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL,
+
+    CONSTRAINT chk_historical_feature_importance_nonnegative
+        CHECK (importance >= 0)
+);
+
+
+CREATE TABLE IF NOT EXISTS taxi_analytics.historical_model_prediction (
+    location_id INTEGER NOT NULL,
+    pickup_hour TIMESTAMP NOT NULL,
+    actual_demand DOUBLE PRECISION NOT NULL,
+    predicted_demand DOUBLE PRECISION NOT NULL,
+    trained_through TIMESTAMP NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL,
+
+    CONSTRAINT pk_historical_model_prediction PRIMARY KEY (
+        location_id, pickup_hour
+    ),
+    CONSTRAINT fk_historical_model_prediction_zone FOREIGN KEY (location_id)
+        REFERENCES taxi_analytics.dim_zone (location_id),
+    CONSTRAINT chk_historical_prediction_actual_nonnegative
+        CHECK (actual_demand >= 0),
+    CONSTRAINT chk_historical_prediction_predicted_nonnegative
+        CHECK (predicted_demand >= 0)
+);
+
+
 CREATE TABLE IF NOT EXISTS taxi_analytics.future_demand_profile (
     location_id INTEGER NOT NULL,
     day_of_week SMALLINT NOT NULL,
