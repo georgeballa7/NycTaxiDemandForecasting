@@ -2,15 +2,15 @@
 
 ## Purpose
 
-PostgreSQL is the runtime analytical store for demand exploration and business
-insights. The current implementation uses one schema:
+PostgreSQL is the runtime analytical and future-forecast serving store. The project uses one application schema:
 
-`taxi_analytics`
+```text
+taxi_analytics
+```
 
-The schema is defined in
-`backend/sql/create_taxi_analytics_schema.sql`.
+The production instance is hosted on Supabase. A separate local PostgreSQL instance is used for development and local publication testing.
 
-## Entity relationships
+## Core analytical relationships
 
 ```mermaid
 erDiagram
@@ -22,10 +22,9 @@ erDiagram
     DIM_DATE ||--o{ FACT_TRIPS : pickup_date
     DIM_HOUR ||--o{ FACT_TRIPS : hour
     DIM_PAYMENT ||--o{ FACT_TRIPS : payment_type
-```
 
-The checked-in DDL explicitly defines primary keys, foreign keys, and basic
-check constraints.
+    DIM_ZONE ||--o{ FUTURE_DEMAND_PROFILE : location_id
+```
 
 ## Shared dimensions
 
@@ -33,48 +32,32 @@ check constraints.
 
 Primary key: `location_id`
 
-Columns:
+Columns include:
 
 - `location_id`
 - `borough`
 - `zone`
 - `service_zone`
 
+The numeric `LocationID` is an internal key. User-facing Streamlit controls present readable taxi-zone names; for example, LocationID `161` is **Midtown Center**.
+
 ### `taxi_analytics.dim_date`
 
 Primary key: `full_date`
 
-Columns:
-
-- `full_date`
-- `year`
-- `month`
-- `month_name`
-- `day`
-- `weekday_number`
-- `weekday`
-- `is_weekend`
-
-The DDL enforces month values 1–12 and weekday numbers 1–7.
+Includes year, month, day, weekday and weekend attributes.
 
 ### `taxi_analytics.dim_hour`
 
-Primary key: `hour`
-
-Columns:
-
-- `hour`
-- `day_part`
-
-The DDL enforces hour values 0–23.
+Primary key: `hour`, constrained to 0–23.
 
 ### `taxi_analytics.dim_payment`
 
-Primary key: `payment_type`
+Primary key: `payment_type`.
 
-The business loader seeds:
+Payment mapping:
 
-| payment_type | payment_method |
+| Code | Method |
 |---:|---|
 | 1 | Credit card |
 | 2 | Cash |
@@ -87,7 +70,11 @@ The business loader seeds:
 
 ### `taxi_analytics.fact_demand`
 
-**Grain:** one pickup zone × calendar date × hour.
+Grain:
+
+```text
+pickup zone × calendar date × hour
+```
 
 Composite primary key:
 
@@ -95,18 +82,17 @@ Composite primary key:
 (location_id, pickup_date, hour)
 ```
 
-Foreign keys reference `dim_zone`, `dim_date`, and `dim_hour`.
-
-The DDL also enforces `demand >= 0`.
-
-Because the upstream pipeline constructs a complete zone-hour grid,
-zero-demand rows are meaningful observations rather than missing data.
+The upstream pipeline constructs a complete zone-hour panel, so zero-demand rows are meaningful observations rather than missing records.
 
 ## Business fact
 
 ### `taxi_analytics.fact_trips`
 
-**Grain:** one pickup zone × pickup date × hour × payment type.
+Grain:
+
+```text
+pickup zone × date × hour × payment type
+```
 
 Composite primary key:
 
@@ -114,50 +100,79 @@ Composite primary key:
 (location_id, pickup_date, hour, payment_type)
 ```
 
-Foreign keys reference `dim_zone`, `dim_date`, `dim_hour`, and `dim_payment`.
+The fact contains trip count and additive fare, total, tip, distance, toll and congestion-related measures.
 
-The fact stores:
+## Incremental pipeline state
 
-- `trip_count`
-- `fare_amount`
-- `total_amount`
-- `tip_amount`
-- `trip_distance`
-- `tolls_amount`
-- `congestion_surcharge`
-- `airport_fee`
-- `cbd_congestion_fee`
+### `taxi_analytics.pipeline_runs`
 
-## Validated serving volumes
+This table records monthly pipeline execution state and allows the incremental workflow to determine the last successfully processed TLC month and therefore the next expected month.
 
-| Table | Rows |
-|---|---:|
-| `dim_zone` | 265 |
-| `dim_date` | 181 |
-| `dim_hour` | 24 |
-| `dim_payment` | 6 |
-| `fact_demand` | 1,151,160 |
-| `fact_trips` | 783,969 |
+It is part of the data-engineering control layer rather than an end-user analytical fact.
 
-These counts describe the validated January–June 2025 project dataset rather
-than schema-level constraints.
+## Future forecast serving tables
+
+### `taxi_analytics.future_demand_profile`
+
+Stores the production long-horizon demand profile at:
+
+```text
+location_id × day_of_week × hour
+```
+
+with `predicted_demand` for each profile row.
+
+The validated snapshot through May 2026 contains **41,604 rows**.
+
+### `taxi_analytics.future_model_metric`
+
+Stores aggregate rolling-backtest metrics for candidate future models.
+
+Validated values:
+
+| Model | MAE | RMSE | Backtest months |
+|---|---:|---:|---:|
+| `zone_dow_hour_mean` | 6.4030 | 16.0399 | 4 |
+| `random_forest` | 7.3245 | 19.7391 | 4 |
+
+### `taxi_analytics.future_forecast_metadata`
+
+Stores the active future-serving snapshot metadata, including:
+
+- production model
+- trained-through timestamp
+- generation timestamp
+- profile dimensions
+- profile row count
+
+Validated production metadata uses:
+
+```text
+production_model = zone_dow_hour_mean
+trained_through = 2026-05-31 23:00:00
+profile_rows = 41604
+```
+
+## Publication behavior
+
+Future forecast publication uses a snapshot-replacement strategy. The publisher computes the profile, metrics and metadata in memory and writes them transactionally to each configured PostgreSQL target.
+
+The same future snapshot is published to:
+
+1. local PostgreSQL
+2. Supabase PostgreSQL
+
+FastAPI reads the production future forecast directly from Supabase through its database connection.
 
 ## Query semantics
 
-Demand queries aggregate `fact_demand` by hour, weekday, date, and zone.
-Business queries aggregate additive measures from `fact_trips` and enrich
-results through shared dimensions.
+- Demand queries aggregate `fact_demand` by hour, weekday, date and zone.
+- Business queries aggregate additive measures from `fact_trips` and enrich results with dimensions.
+- `/data-range` derives current minimum and maximum demand dates from the database.
+- Future predictions query `future_demand_profile` and use exact or zone-level fallbacks.
+- Future model validation reads `future_model_metric`.
+- Future serving freshness is determined from `future_forecast_metadata`.
 
-The database is a serving model, not a raw trip store.
+The database is a reduced analytical/serving model, not a raw trip store.
 
-## Refresh behavior
-
-`backend/workflows/data_pipeline.py` owns the destructive refresh step. It
-truncates all six analytical tables before invoking the two loaders.
-
-The demand loader loads shared dimensions plus `fact_demand`; the business
-loader loads `dim_payment` plus `fact_trips`.
-
-This is a full replacement strategy, not incremental loading.
-
-For construction lineage see [Data pipeline](data_pipeline.md).
+For construction lineage see [Data pipeline](data_pipeline.md), and for model semantics see [Forecasting](forecasting.md).
