@@ -118,12 +118,14 @@ try:
                 forecast_datetime=forecast_datetime,
             )
 
+            predicted_pickups = round(result["predicted_demand"])
+
             result_col1, result_col2 = st.columns(2)
 
             with result_col1:
                 st.metric(
                     "Predicted Taxi Pickups",
-                    f"{result['predicted_demand']:.1f}",
+                    f"{predicted_pickups:,}",
                 )
 
             with result_col2:
@@ -144,7 +146,7 @@ try:
 
             st.info(
                 f"**{selected_zone}, {selected_borough}:** Forecast demand "
-                f"is **{result['predicted_demand']:.1f} pickups** for "
+                f"is **{predicted_pickups:,} pickups** for "
                 f"**{forecast_datetime:%d %b %Y %H:%M}**. "
                 f"Forecast method: **{method_labels.get(result['forecast_method'], result['forecast_method'])}**. "
                 f"Historical demand data are available through "
@@ -189,9 +191,9 @@ try:
     st.caption(
         "Validation covers four rolling monthly holdouts from February "
         "through May 2026. Lower MAE and RMSE indicate better forecast "
-        "accuracy. The Random Forest remains part of the historical model "
-        "evaluation workflow, while the better-performing profile model is "
-        "used for future inference."
+        "accuracy. The Random Forest was evaluated as an alternative model, "
+        "but the historical profile achieved lower errors across the rolling "
+        "holdout periods and was therefore selected for production forecasting."
     )
 
 except Exception as exc:
