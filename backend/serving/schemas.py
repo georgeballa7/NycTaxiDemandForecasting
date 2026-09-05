@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import date, datetime
+
 from pydantic import BaseModel
 
 
@@ -13,6 +14,11 @@ class FuturePredictionResponse(BaseModel):
     predicted_demand: float
     forecast_method: str
     trained_through: datetime
+
+
+class DemandDateRangeResponse(BaseModel):
+    min_date: date
+    max_date: date
 
 
 class ZoneResponse(BaseModel):
@@ -43,7 +49,6 @@ class PredictionResponse(BaseModel):
     predicted_demand: float
 
 
-
 class DemandByHourResponse(BaseModel):
     hour: int
     avg_demand: float
@@ -69,9 +74,6 @@ class TopZoneResponse(BaseModel):
     service_zone: str
     total_demand: int
     avg_hourly_demand: float
-
-
-from datetime import date
 
 
 class ZoneDemandByHourResponse(BaseModel):
