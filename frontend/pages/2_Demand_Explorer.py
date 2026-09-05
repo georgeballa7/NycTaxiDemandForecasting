@@ -5,6 +5,7 @@ import plotly.express as px
 import streamlit as st
 
 from frontend.utils.api_client import (
+    get_demand_date_range,
     get_zones,
     get_zone_demand_by_hour,
     get_zone_demand_by_weekday,
@@ -23,7 +24,6 @@ st.set_page_config(
     layout="wide",
 )
 
-
 st.title("Demand Explorer")
 
 st.write(
@@ -33,7 +33,7 @@ st.write(
 
 
 # --------------------------------------------------
-# Load zone lookup
+# Load shared reference data
 # --------------------------------------------------
 
 @st.cache_data(ttl=300)
@@ -41,10 +41,21 @@ def load_zones():
     return get_zones()
 
 
-try:
-    zones = load_zones()
+@st.cache_data(ttl=300)
+def load_data_range():
+    return get_demand_date_range()
 
-    zones_df = pd.DataFrame(zones)
+
+try:
+    zones_df = pd.DataFrame(load_zones())
+    data_range = load_data_range()
+
+    min_data_date = date.fromisoformat(
+        data_range["min_date"]
+    )
+    max_data_date = date.fromisoformat(
+        data_range["max_date"]
+    )
 
     # --------------------------------------------------
     # Filters
@@ -53,10 +64,6 @@ try:
     st.subheader("Filters")
 
     filter_col1, filter_col2 = st.columns(2)
-
-    # -----------------------------
-    # Borough filter
-    # -----------------------------
 
     boroughs = sorted(
         zones_df["Borough"]
@@ -75,10 +82,6 @@ try:
                 else 0
             ),
         )
-
-    # -----------------------------
-    # Zone filter
-    # -----------------------------
 
     borough_zones_df = (
         zones_df[
@@ -100,7 +103,6 @@ try:
             zone_names,
         )
 
-    # Determine LocationID from selected zone
     selected_zone_row = (
         borough_zones_df[
             borough_zones_df["Zone"]
@@ -114,25 +116,30 @@ try:
     )
 
     # --------------------------------------------------
-    # Date filter
+    # Dynamic date filter
     # --------------------------------------------------
+
+    st.caption(
+        f"Available demand data: "
+        f"{min_data_date:%d %b %Y} – {max_data_date:%d %b %Y}"
+    )
 
     date_col1, date_col2 = st.columns(2)
 
     with date_col1:
         start_date = st.date_input(
             "Start Date",
-            value=date(2025, 1, 1),
-            min_value=date(2025, 1, 1),
-            max_value=date(2025, 6, 30),
+            value=min_data_date,
+            min_value=min_data_date,
+            max_value=max_data_date,
         )
 
     with date_col2:
         end_date = st.date_input(
             "End Date",
-            value=date(2025, 6, 30),
-            min_value=date(2025, 1, 1),
-            max_value=date(2025, 6, 30),
+            value=max_data_date,
+            min_value=min_data_date,
+            max_value=max_data_date,
         )
 
     if start_date > end_date:
@@ -151,33 +158,22 @@ try:
         start_date,
         end_date,
     ):
-
-
-        demand_by_hour = (
-            get_zone_demand_by_hour(
-                location_id,
-                start_date=start_date,
-                end_date=end_date,
-            )
+        demand_by_hour = get_zone_demand_by_hour(
+            location_id,
+            start_date=start_date,
+            end_date=end_date,
         )
 
-        demand_by_weekday = (
-            get_zone_demand_by_weekday(
-                location_id,
-                start_date=start_date,
-                end_date=end_date,
-            )
+        demand_by_weekday = get_zone_demand_by_weekday(
+            location_id,
+            start_date=start_date,
+            end_date=end_date,
         )
 
-
-
-
-        demand_over_time = (
-            get_zone_demand_over_time(
-                location_id,
-                start_date=start_date,
-                end_date=end_date,
-            )
+        demand_over_time = get_zone_demand_over_time(
+            location_id,
+            start_date=start_date,
+            end_date=end_date,
         )
 
         return (
@@ -185,7 +181,6 @@ try:
             demand_by_weekday,
             demand_over_time,
         )
-
 
     (
         demand_by_hour,
@@ -197,17 +192,9 @@ try:
         end_date,
     )
 
-    hour_df = pd.DataFrame(
-        demand_by_hour
-    )
-
-    weekday_df = pd.DataFrame(
-        demand_by_weekday
-    )
-
-    time_df = pd.DataFrame(
-        demand_over_time
-    )
+    hour_df = pd.DataFrame(demand_by_hour)
+    weekday_df = pd.DataFrame(demand_by_weekday)
+    time_df = pd.DataFrame(demand_over_time)
 
     time_df["date"] = pd.to_datetime(
         time_df["date"]
@@ -301,7 +288,7 @@ try:
     st.plotly_chart(
         time_fig,
         width="stretch",
-)
+    )
 
     # --------------------------------------------------
     # Demand patterns
@@ -310,10 +297,6 @@ try:
     st.subheader("Demand Patterns")
 
     hour_col, weekday_col = st.columns(2)
-
-    # -----------------------------
-    # Demand by hour
-    # -----------------------------
 
     with hour_col:
         hour_fig = px.bar(
@@ -350,16 +333,9 @@ try:
             width="stretch",
         )
 
-    # -----------------------------
-    # Demand by weekday
-    # -----------------------------
-
     with weekday_col:
-        weekday_df = (
-            weekday_df
-            .sort_values(
-                "weekday_number"
-            )
+        weekday_df = weekday_df.sort_values(
+            "weekday_number"
         )
 
         weekday_fig = px.bar(
@@ -391,14 +367,12 @@ try:
             width="stretch",
         )
 
-
-            # --------------------------------------------------
+    # --------------------------------------------------
     # Demand Insights
     # --------------------------------------------------
 
     st.subheader("Demand Insights")
 
-    # Peak demand hour
     peak_hour_row = hour_df.loc[
         hour_df["avg_demand"].idxmax()
     ]
@@ -411,7 +385,6 @@ try:
         peak_hour_row["avg_demand"]
     )
 
-    # Lowest-demand hour
     low_hour_row = hour_df.loc[
         hour_df["avg_demand"].idxmin()
     ]
@@ -424,7 +397,6 @@ try:
         low_hour_row["avg_demand"]
     )
 
-    # Peak weekday
     peak_weekday_row = weekday_df.loc[
         weekday_df["avg_demand"].idxmax()
     ]
@@ -437,12 +409,10 @@ try:
         peak_weekday_row["avg_demand"]
     )
 
-    # Average hourly demand across the selected period
     overall_hourly_average = (
         hour_df["avg_demand"].mean()
     )
 
-    # How much higher is peak-hour demand than average?
     peak_vs_average = (
         (
             peak_hour_demand
@@ -450,10 +420,6 @@ try:
         )
         - 1
     ) * 100
-
-    # --------------------------------------------------
-    # Insight KPIs
-    # --------------------------------------------------
 
     insight1, insight2, insight3, insight4 = st.columns(4)
 
@@ -484,10 +450,6 @@ try:
             f"+{peak_vs_average:.1f}%",
         )
 
-    # --------------------------------------------------
-    # Automatic interpretation
-    # --------------------------------------------------
-
     st.info(
         f"**{selected_zone}, {selected_borough}:** "
         f"Demand is highest around **{peak_hour:02d}:00**, "
@@ -497,7 +459,6 @@ try:
         f"strongest average demand. Peak-hour demand is approximately "
         f"**{peak_vs_average:.1f}% above the zone's average hourly demand**."
     )
-
 
 except Exception as exc:
     st.error(
