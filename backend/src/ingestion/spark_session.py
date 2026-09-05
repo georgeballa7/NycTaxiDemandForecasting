@@ -10,10 +10,15 @@ def create_spark_session(app_name: str = "NYC Taxi Demand Forecasting"):
     return (
         SparkSession.builder
         .appName(app_name)
-        .master("local[*]")
+        .master("local[8]")
         .config("spark.driver.host", "127.0.0.1")
         .config("spark.driver.bindAddress", "127.0.0.1")
         .config("spark.driver.memory", "8g")
+        .config("spark.network.timeout", "300s")
+        .config(
+            "spark.executor.heartbeatInterval",
+            "30s",
+        )
         .config("spark.sql.shuffle.partitions", "200")
         .getOrCreate()
     )

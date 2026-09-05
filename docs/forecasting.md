@@ -1,25 +1,17 @@
 # Demand forecasting
 
-## Forecasting task
+## Forecasting tasks
 
-The model estimates the number of cleaned Yellow Taxi pickups in a taxi zone
-during an hour. The supervised target is `demand` at the
-`LocationID × pickup_hour` grain.
+The project now distinguishes two related forecasting tasks:
 
-The implementation is a batch evaluation workflow. The deployed API serves
-precomputed June 2025 results rather than performing online Spark inference.
+1. **Historical model evaluation** — a Spark Random Forest using lag and rolling-demand features.
+2. **Future demand inference** — a long-horizon zone/day-of-week/hour demand profile served from PostgreSQL/Supabase.
 
-## Modeling dataset
+Both estimate hourly cleaned Yellow Taxi pickup demand at taxi-zone level, but they have different purposes and serving requirements.
 
-The hourly panel covers all 265 zones across the January–June 2025 project
-period. Missing observed pickups are represented as zero demand.
+## Historical Random Forest
 
-Rows are retained for modeling only when `history_count_168h == 168`, ensuring
-a complete seven-day trailing history.
-
-## Features
-
-The Spark model uses 13 predictors:
+The historical Spark ML model uses 13 predictors:
 
 - `hour`
 - `day_of_week`
@@ -35,103 +27,152 @@ The Spark model uses 13 predictors:
 - `rolling_mean_24h`
 - `rolling_mean_168h`
 
-Rolling windows exclude the current target observation.
+Rolling windows exclude the current target observation. Rows are retained for modeling only after a complete seven-day trailing history is available.
 
-## Chronological validation
-
-The training workflow uses:
-
-- **training:** observations before `2025-06-01 00:00:00`;
-- **test:** observations from `2025-06-01 00:00:00` through the end of June.
-
-Validated row counts:
-
-- training rows: **915,840**
-- test rows: **190,800**
-
-## Baseline
-
-The baseline uses `lag_24h`.
-
-Validated metrics:
-
-- MAE: **7.1601**
-- RMSE: **23.4332**
-
-## Random Forest
-
-The Spark ML `RandomForestRegressor` uses:
+The Spark `RandomForestRegressor` uses:
 
 - 100 trees
 - maximum depth 10
 - random seed 42
 
-Validated metrics:
+### Latest validated historical retraining
 
-- MAE: **5.0092**
-- RMSE: **16.7101**
+Using data through May 2026:
 
-## Feature importance
+| Metric | Baseline | Random Forest |
+|---|---:|---:|
+| MAE | 6.51 | **4.63** |
+| RMSE | 21.84 | **15.97** |
 
-| Feature | Importance |
-|---|---:|
-| `lag_168h` | 0.405756 |
-| `lag_1h` | 0.258064 |
-| `lag_24h` | 0.213218 |
-| `rolling_mean_24h` | 0.054306 |
-| `rolling_mean_168h` | 0.038072 |
+Training rows: **2,079,720**  
+Test rows: **197,160**  
+Latest data timestamp: **2026-05-31 23:00:00**  
+Test period: **May 2026**
 
-Feature importance describes model reliance, not causality.
+The Random Forest therefore remains useful for historical validation and short-horizon model evaluation.
 
-## Training outputs
+## Why a separate future model is needed
 
-`backend/src/ml/train_model.py` writes:
+Lag-based features such as `lag_1h`, `lag_24h` and `lag_168h` require recent observed demand. They are appropriate for historical/near-term evaluation but are not naturally available for an arbitrary date months into the future.
 
-- `data/processed/predictions/`
-- `data/processed/models/random_forest/`
-- `data/processed/feature_importance.csv`
-- `data/processed/model_metrics.csv`
+For long-horizon user-facing forecasts, the project therefore validates models using rolling future-month backtests and deploys a profile model that only requires:
 
-## App-artifact publication
+- taxi zone
+- day of week
+- hour of day
 
-`backend/src/ml/prepare_app_data.py` publishes:
+## Rolling future-model validation
 
-- `data/app/predictions.parquet`
-- `data/app/zones.parquet`
-- `data/app/feature_importance.csv`
-- `data/app/model_metrics.csv`
+Four future months were evaluated:
 
-The metrics and feature-importance CSV files are copied from the processed
-directory as part of the current checked-in workflow.
+| Test month | Profile MAE | Profile RMSE | RF MAE | RF RMSE |
+|---|---:|---:|---:|---:|
+| 2026-02 | 7.3255 | 19.1128 | 7.5178 | 19.4840 |
+| 2026-03 | 6.0025 | 14.7159 | 7.2744 | 20.4239 |
+| 2026-04 | 5.7818 | 14.0006 | 6.5784 | 17.5946 |
+| 2026-05 | 6.5023 | 16.3303 | 7.9272 | 21.4538 |
+
+Aggregate results:
+
+| Model | MAE | RMSE | Backtest months |
+|---|---:|---:|---:|
+| `zone_dow_hour_mean` | **6.4030** | **16.0399** | 4 |
+| `random_forest` | 7.3245 | 19.7391 | 4 |
+
+The profile model wins the validated future comparison and is therefore the **production future forecasting model**.
+
+## Production future model
+
+`zone_dow_hour_mean` computes average historical demand for:
+
+```text
+LocationID × Spark day_of_week × hour
+```
+
+The publisher creates one serving snapshot and writes it to PostgreSQL/Supabase.
+
+Validated snapshot through May 2026:
+
+- production model: `zone_dow_hour_mean`
+- trained through: `2026-05-31 23:00:00`
+- profile rows: `41,604`
+
+## Future prediction serving
+
+FastAPI exposes:
+
+- `GET /future-model-metrics`
+- `POST /predict`
+
+`POST /predict` accepts a taxi-zone ID and future datetime. Internally it maps the datetime to NYC time where needed and looks up the published profile.
+
+Fallback order:
+
+```text
+exact zone + day-of-week + hour
+        ↓
+zone + hour average
+        ↓
+zone overall average
+```
+
+The response reports the method used as:
+
+- `zone_dow_hour`
+- `zone_hour_fallback`
+- `zone_fallback`
+
+A zone with no historical profile returns HTTP 404. A forecast datetime at or before the model's `trained_through` timestamp returns HTTP 400.
+
+Example validated production request:
+
+```text
+LocationID: 161 (Midtown Center)
+Forecast datetime: 2026-09-18 20:00
+Predicted demand: 275.596...
+Method: zone_dow_hour
+Trained through: 2026-05-31 23:00
+```
+
+## Serving storage
+
+Future forecast serving is fully database-backed. The following tables are used:
+
+- `taxi_analytics.future_demand_profile`
+- `taxi_analytics.future_model_metric`
+- `taxi_analytics.future_forecast_metadata`
+
+There is intentionally no `data/app/future_forecast/` directory in the production design.
+
+Historical model outputs remain file-based under `data/app/` and are loaded by FastAPI for historical validation views.
 
 ## ML orchestration
 
 `backend/workflows/ml_pipeline.py` runs:
 
 ```text
-train_model()
-prepare_app_data()
+Historical Random Forest
+        ↓
+Historical app artifacts
+        ↓
+Future rolling backtest
+        ↓
+Future profile publisher
+        ↓
+Local PostgreSQL + Supabase
 ```
 
-The top-level `backend/workflows/run_pipeline.py` runs the data pipeline first,
-then the ML pipeline.
+## Modeling limitations
 
-## Prediction serving
+The production future profile captures recurring zone/day/hour patterns but does not currently model:
 
-FastAPI loads the published predictions, metrics, and feature importance from
-`data/app/`.
+- weather
+- special events
+- holidays as a dedicated feature
+- traffic conditions
+- economic shocks
+- unexpected service disruptions
 
-The Forecast page therefore presents historical held-out prediction results,
-not live future inference.
+The forecast should therefore be interpreted as expected demand based on recurring historical temporal patterns, not as a real-time event-aware forecast.
 
-## Current modeling scope
-
-- January–June 2025 source period
-- June 2025 chronological holdout
-- batch rather than online inference
-- no weather, event, holiday, traffic, or economic variables
-- no hyperparameter search
-- no rolling-origin backtesting
-- persisted Spark model is not required by the runtime API
-
-For upstream feature construction see [Data pipeline](data_pipeline.md).
+For upstream construction see [Data pipeline](data_pipeline.md), and for production configuration see [Deployment](deployment.md).

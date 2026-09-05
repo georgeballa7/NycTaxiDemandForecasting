@@ -24,6 +24,7 @@ APP_DATA_DIR = DATA_DIR / "app"
 # --------------------------------------------------
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+SUPABASE_DATABASE_URL = os.getenv("SUPABASE_DATABASE_URL")
 
 if not DATABASE_URL:
     raise RuntimeError(

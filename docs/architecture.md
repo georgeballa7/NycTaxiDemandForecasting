@@ -2,102 +2,105 @@
 
 ## Scope
 
-This project is an analytical application for NYC Yellow Taxi pickup demand,
-forecast evaluation, and trip-business analysis. It separates offline processing
-from runtime serving:
+This project is an end-to-end NYC Yellow Taxi analytics and forecasting system. It separates offline data/ML processing from lightweight runtime serving.
 
-- an **offline data and machine-learning plane**, implemented primarily with
-  PySpark, that prepares January–June 2025 taxi data, analytical tables, model
-  outputs, and app-ready artifacts; and
-- a **runtime serving plane**, implemented with FastAPI, PostgreSQL, Pandas,
-  and Streamlit.
+The current validated data range is **January 2025 through May 2026**.
 
-PySpark is not part of either deployed web process. FastAPI does not retrain
-the model or invoke Spark for requests; it serves PostgreSQL-backed analytics
-and precomputed model results.
+The architecture has four main parts:
 
-## End-to-end view
+1. **Data ingestion and processing** with PySpark
+2. **ML training and future-demand profile generation**
+3. **Analytical and serving storage** in PostgreSQL / Supabase plus selected file-based artifacts
+4. **Runtime serving** with FastAPI on Render and Streamlit Community Cloud
+
+PySpark is intentionally kept out of request-time serving. FastAPI never starts Spark and Streamlit never talks directly to PostgreSQL or Supabase.
+
+## End-to-end architecture
 
 ```mermaid
 flowchart LR
-    RAW[NYC TLC Yellow Taxi Parquet + zone lookup] --> DATA[Data Pipeline]
-    DATA --> PP[(Processed Parquet)]
-    DATA --> DB[(PostgreSQL / Supabase\ntaxi_analytics)]
-    PP --> ML[ML Pipeline]
-    ML --> MODEL[(Persisted Random Forest)]
-    ML --> APP[(App-ready Parquet / CSV)]
+    TLC[NYC TLC Yellow Taxi monthly Parquet] --> AF[Airflow]
+    AF --> SP[PySpark processing]
+    SP --> PP[(Processed Parquet)]
+    SP --> DB[(PostgreSQL / Supabase\ntaxi_analytics)]
+    PP --> HML[Historical Random Forest]
+    PP --> FML[Future forecast backtesting]
+    HML --> APP[(Historical data/app artifacts)]
+    FML --> PUB[Future forecast publisher]
+    PUB --> DB
     DB --> API[FastAPI on Render]
     APP --> API
-    API --> UI[Streamlit Community Cloud]
-    UI --> USER[Browser]
+    API --> ST[Streamlit Community Cloud]
+    ST --> USER[Browser]
 ```
 
-## Pipeline orchestration
+## Airflow orchestration
 
-Implementation code lives under `backend/src/`. The `backend/workflows/`
-package is reserved for orchestration and contains only:
+Airflow runs locally in Docker with a dedicated metadata PostgreSQL database. That Airflow metadata database is separate from both the local NYC Taxi development database and Supabase.
 
-- `data_pipeline.py`
-- `ml_pipeline.py`
-- `run_pipeline.py`
+The main scheduled DAG is:
 
-`data_pipeline.py` coordinates dataset construction, business-trip construction,
-EDA-serving data preparation, reset of the analytical schema contents, demand
-table loading, and business table loading.
+`airflow/dags/nyc_taxi_monthly_ingestion.py`
 
-`ml_pipeline.py` coordinates Random Forest training and app-artifact
-publication.
+Normal operation:
 
-`run_pipeline.py` is the top-level orchestrator and runs the data pipeline
-followed by the ML pipeline.
+- schedule: daily
+- `catchup=False`
+- `max_active_runs=1`
+- checks only the next expected TLC month
+- processes at most one newly available month per run
+- succeeds as a no-op when the next TLC month is not yet available
+- retrains ML only after a new month is successfully processed
 
-```mermaid
-flowchart TD
-    RUN[run_pipeline.py] --> DATA[data_pipeline.py]
-    DATA --> ML[ml_pipeline.py]
+The shared ML workflow is implemented in `backend/workflows/ml_pipeline.py` and runs:
+
+```text
+Historical Random Forest training
+        ↓
+Historical app artifact preparation
+        ↓
+Future-model rolling backtest
+        ↓
+Future forecast profile publication
+        ↓
+Local PostgreSQL + Supabase
 ```
-
-There is no external scheduler, DAG platform, or CI/CD workflow in the
-repository.
 
 ## Implementation layers
 
 | Layer | Repository location | Responsibility |
 |---|---|---|
-| Configuration | `backend/src/config/` | Backend paths, database URL, canonical schema |
-| Ingestion | `backend/src/ingestion/` | Spark session, trip input, zone lookup |
-| Processing | `backend/src/processing/` | Dataset construction, EDA preparation, trip transformations |
-| Features | `backend/src/features/` | Demand feature engineering |
+| Configuration | `backend/src/config/`, `frontend/config/` | Paths, database URLs, API configuration |
+| Ingestion | `backend/src/ingestion/` | Spark session, TLC availability, source loading |
+| Processing | `backend/src/processing/` | Dataset construction and transformations |
+| Features | `backend/src/features/` | Historical demand feature engineering |
 | Persistence | `backend/src/persistence/` | Parquet persistence helpers |
-| Database | `backend/src/database/` | SQLAlchemy connection, loaders, query repositories |
-| ML | `backend/src/ml/` | Model training and app-artifact publication |
-| Workflows | `backend/workflows/` | Data, ML, and top-level orchestration only |
-| Serving | `backend/serving/` | FastAPI application and response schemas |
+| Database | `backend/src/database/` | SQLAlchemy connection, loaders, serving repositories |
+| ML | `backend/src/ml/` | Historical model, future backtesting, profile publication |
+| Workflows | `backend/workflows/` | Data and ML orchestration |
+| Airflow | `airflow/dags/` | Scheduled and manual orchestration |
+| Serving | `backend/serving/` | FastAPI application and schemas |
 | Frontend | `frontend/` | Streamlit application and HTTP API client |
-
-Configuration is centralized in:
-
-- `backend/src/config/settings.py`
-- `frontend/config/settings.py`
-- `backend/src/ingestion/spark_session.py`
 
 ## Persistence layers
 
 | Layer | Location/system | Purpose |
 |---|---|---|
 | Raw | `data/raw/` | Monthly TLC trip files and taxi-zone lookup |
-| Processed | `data/processed/` | Spark intermediates, features, predictions, model metrics, feature importance, persisted model |
-| App artifacts | `data/app/` | Predictions, metrics, feature importance, zones, and EDA serving extract |
-| Analytical database | PostgreSQL / Supabase | Unified `taxi_analytics` analytical schema |
+| Processed | `data/processed/` | Features, business data, model outputs, backtest results, persisted historical model |
+| Historical app artifacts | `data/app/` | Historical predictions, metrics, feature importance, zones and EDA extracts |
+| Local PostgreSQL | local development DB | Local analytical and future-forecast publication target |
+| Supabase PostgreSQL | production DB | Production analytical data and future forecast serving data |
 
-The physical schema is defined in
-`backend/sql/create_taxi_analytics_schema.sql`.
+The historical `data/app` artifacts remain intentionally file-based. They are small enough for deployment and avoiding an unnecessary migration keeps Supabase storage usage lower.
 
-## Unified PostgreSQL model
+Future forecast artifacts are **not** stored under `data/app/future_forecast/`. The future serving layer is database-backed.
 
-The application uses one PostgreSQL schema: `taxi_analytics`.
+## PostgreSQL model
 
-It contains:
+The production schema is `taxi_analytics`.
+
+Core analytical tables:
 
 - `dim_zone`
 - `dim_date`
@@ -105,62 +108,80 @@ It contains:
 - `dim_payment`
 - `fact_demand`
 - `fact_trips`
+- `pipeline_runs`
 
-Demand and business analytics share common dimensions while keeping separate
-facts for their different analytical grains.
+Future forecast serving tables:
+
+- `future_demand_profile`
+- `future_model_metric`
+- `future_forecast_metadata`
+
+The future forecast publisher replaces the future-serving snapshot transactionally in both local PostgreSQL and Supabase.
 
 ## Runtime serving plane
 
 ### FastAPI
 
-`backend/serving/fast_api.py` serves PostgreSQL-backed demand analytics,
-PostgreSQL-backed business analytics, and file-backed predictions, model
-metrics, and feature importance.
+`backend/serving/fast_api.py` serves:
+
+- PostgreSQL-backed demand analytics
+- PostgreSQL-backed business analytics
+- PostgreSQL-backed future forecast metrics and predictions
+- file-backed historical model predictions, historical metrics and feature importance
+
+The `/predict` endpoint is a POST endpoint and performs lightweight lookup/fallback logic against the published future-demand profiles. No Spark or scikit-learn model is loaded for the request.
 
 ### Streamlit
 
-The Streamlit application provides Overview, Demand Explorer, Forecast,
-Business Insights, and Strategic Insights pages. It communicates with FastAPI
-over HTTP and does not connect directly to PostgreSQL or import Spark.
+The Streamlit app provides:
 
-## Cloud production architecture
+- Overview
+- Demand Explorer
+- Forecast
+- Business Insights
+- Strategic Insights
+
+Streamlit calls FastAPI through `API_BASE_URL`. It does not need database credentials.
+
+## Cloud production topology
 
 ```mermaid
 flowchart LR
     U[Browser] --> ST[Streamlit Community Cloud]
-    ST -->|HTTPS API_BASE_URL| R[FastAPI on Render]
+    ST -->|HTTPS / API_BASE_URL| R[FastAPI on Render]
     R -->|DATABASE_URL| S[(Supabase PostgreSQL\ntaxi_analytics)]
-    R --> A[(Deployed data/app artifacts)]
+    R --> A[(Deployed historical data/app artifacts)]
 ```
 
-Render, Supabase, and Streamlit settings are managed on their respective
-platforms. Infrastructure-as-code and automated deployment are outside the
-repository.
+Current production components:
 
-## Architectural decisions and trade-offs
+- Streamlit Community Cloud: frontend
+- Render: FastAPI backend
+- Supabase: production PostgreSQL
+- Airflow: local Docker orchestration for now
 
-### Keep Spark outside request handling
+## Key architectural decisions
 
-Spark performs raw-scale transformations and model training offline. Runtime
-services consume reduced files and analytical database tables.
+### Spark stays offline
 
-### Precompute evaluation predictions
+Spark handles data-scale transformation and training. Runtime services remain lightweight and inexpensive to host.
 
-The API serves held-out June 2025 predictions rather than performing online
-inference. This keeps serving lightweight, but results change only after the
-offline ML pipeline is rerun and refreshed artifacts are deployed.
+### Separate historical evaluation from future inference
 
-### Unified analytical schema
+The historical Random Forest is retained for model validation and short-horizon evaluation. It is not used as the long-horizon production model.
 
-The earlier split between demand and business schemas has been replaced by one
-`taxi_analytics` schema. Shared dimensions reduce duplication while separate
-facts preserve their different grains.
+For future forecasts, rolling backtests showed that the simpler `zone_dow_hour_mean` profile model outperformed the Random Forest across the validated future months, so it is the production future model.
 
-### Thin workflow layer
+### Future serving is database-backed
 
-Implementation modules remain reusable under `backend/src/`; workflow files
-only express orchestration.
+Future profiles, metrics and metadata are published to PostgreSQL/Supabase and read by FastAPI. This removes the need to redeploy future forecast files after every retraining.
 
-For more detail, see [Data pipeline](data_pipeline.md),
-[Data model](data_model.md), [Forecasting](forecasting.md), and
-[Deployment](deployment.md).
+### Historical artifacts remain file-based
+
+Historical predictions, model metrics, feature importance and zones remain under `data/app/`. After a successful retraining, these files must be reviewed, committed and deployed manually if they changed.
+
+### Data freshness and model freshness are separate
+
+DB-backed analytics become current after a successful monthly data load. Model-backed outputs become current only after the ML pipeline completes; historical file-backed outputs additionally require the refreshed `data/app` files to be committed and deployed.
+
+For more detail, see [Data pipeline](data_pipeline.md), [Data model](data_model.md), [Forecasting](forecasting.md), and [Deployment](deployment.md).

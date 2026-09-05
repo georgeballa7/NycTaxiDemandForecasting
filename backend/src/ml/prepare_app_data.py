@@ -6,13 +6,12 @@ from pyspark.sql import functions as F
 from backend.src.ingestion.spark_session import create_spark_session
 from backend.src.ingestion.load_zone_lookup import load_zone_lookup
 from backend.src.persistence.load_parquet import load_parquet
-from backend.src.persistence.save_parquet import save_parquet
 
 
 def prepare_app_data():
     spark = create_spark_session("NYC Taxi Demand - App Data")
 
-    project_root = Path(__file__).resolve().parents[2]
+    project_root = Path(__file__).resolve().parents[3]
     raw_path = project_root / "data" / "raw"
     processed_path = project_root / "data" / "processed"
     app_path = project_root / "data" / "app"
@@ -50,24 +49,20 @@ def prepare_app_data():
         )
     )
 
-
     app_zones = (
-    zones
-    .select(
-        "LocationID",
-        "Borough",
-        "Zone",
-        "service_zone",
-    )
-    .orderBy("Borough", "Zone")
+        zones
+        .select(
+            "LocationID",
+            "Borough",
+            "Zone",
+            "service_zone",
+        )
+        .orderBy("Borough", "Zone")
     )
 
     print("App prediction data prepared successfully.")
 
-    app_path = project_root / "data" / "app"
-
     app_path.mkdir(parents=True, exist_ok=True)
-
 
     predictions_pd = app_predictions.toPandas()
     zones_pd = app_zones.toPandas()
@@ -81,7 +76,6 @@ def prepare_app_data():
         app_path / "zones.parquet",
         index=False,
     )
-
 
     copy2(
         processed_path / "feature_importance.csv",

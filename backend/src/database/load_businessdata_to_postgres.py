@@ -1,24 +1,26 @@
 from pyspark.sql import functions as F
 from sqlalchemy import text
+from sqlalchemy.engine import Engine
 
 from backend.src.config.settings import (
     DATABASE_SCHEMA,
     PROCESSED_DATA_DIR,
 )
 from backend.src.database.connection import engine
+from backend.src.database.upsert import upsert_dataframe
 from backend.src.ingestion.spark_session import create_spark_session
 
-
-# --------------------------------------------------
-# Paths
-# --------------------------------------------------
 
 BUSINESS_TRIPS_PATH = PROCESSED_DATA_DIR / "business_trips"
 
 
-# --------------------------------------------------
-# Build aggregated fact table
-# --------------------------------------------------
+def _monthly_path(root, year: int, month: int):
+    if not 1 <= month <= 12:
+        raise ValueError(
+            f"month must be between 1 and 12. Received: {month}"
+        )
+    return root / f"year={year}" / f"month={month:02d}"
+
 
 def build_fact_trips(business_trips):
     fact_trips = (
@@ -30,71 +32,26 @@ def build_fact_trips(business_trips):
             "payment_type",
         )
         .agg(
-            F.count("*").alias(
-                "trip_count"
-            ),
-            F.sum("fare_amount").alias(
-                "fare_amount"
-            ),
-            F.sum("total_amount").alias(
-                "total_amount"
-            ),
-            F.sum("tip_amount").alias(
-                "tip_amount"
-            ),
-            F.sum("trip_distance").alias(
-                "trip_distance"
-            ),
-            F.sum("tolls_amount").alias(
-                "tolls_amount"
-            ),
-            F.sum(
-                "congestion_surcharge"
-            ).alias(
-                "congestion_surcharge"
-            ),
-            F.sum("Airport_fee").alias(
-                "airport_fee"
-            ),
-            F.sum(
-                "cbd_congestion_fee"
-            ).alias(
-                "cbd_congestion_fee"
-            ),
+            F.count("*").alias("trip_count"),
+            F.sum("fare_amount").alias("fare_amount"),
+            F.sum("total_amount").alias("total_amount"),
+            F.sum("tip_amount").alias("tip_amount"),
+            F.sum("trip_distance").alias("trip_distance"),
+            F.sum("tolls_amount").alias("tolls_amount"),
+            F.sum("congestion_surcharge").alias("congestion_surcharge"),
+            F.sum("Airport_fee").alias("airport_fee"),
+            F.sum("cbd_congestion_fee").alias("cbd_congestion_fee"),
         )
-        .withColumnRenamed(
-            "PULocationID",
-            "location_id",
-        )
-        .withColumnRenamed(
-            "pickup_hour",
-            "hour",
-        )
+        .withColumnRenamed("PULocationID", "location_id")
+        .withColumnRenamed("pickup_hour", "hour")
     )
 
-    # Match PostgreSQL data types
     fact_trips = (
         fact_trips
-        .withColumn(
-            "location_id",
-            F.col("location_id")
-            .cast("short"),
-        )
-        .withColumn(
-            "hour",
-            F.col("hour")
-            .cast("short"),
-        )
-        .withColumn(
-            "payment_type",
-            F.col("payment_type")
-            .cast("short"),
-        )
-        .withColumn(
-            "trip_count",
-            F.col("trip_count")
-            .cast("int"),
-        )
+        .withColumn("location_id", F.col("location_id").cast("short"))
+        .withColumn("hour", F.col("hour").cast("short"))
+        .withColumn("payment_type", F.col("payment_type").cast("short"))
+        .withColumn("trip_count", F.col("trip_count").cast("int"))
     )
 
     numeric_columns = [
@@ -109,15 +66,9 @@ def build_fact_trips(business_trips):
     ]
 
     for column in numeric_columns:
-        fact_trips = (
-            fact_trips
-            .withColumn(
-                column,
-                F.round(
-                    F.col(column),
-                    2,
-                ).cast("decimal(14,2)"),
-            )
+        fact_trips = fact_trips.withColumn(
+            column,
+            F.round(F.col(column), 2).cast("decimal(14,2)"),
         )
 
     return fact_trips.select(
@@ -137,11 +88,7 @@ def build_fact_trips(business_trips):
     )
 
 
-# --------------------------------------------------
-# Load into PostgreSQL
-# --------------------------------------------------
-
-def load_dim_payment():
+def load_dim_payment(db_engine: Engine = engine):
     payment_rows = [
         {"payment_type": 1, "payment_method": "Credit card"},
         {"payment_type": 2, "payment_method": "Cash"},
@@ -151,61 +98,40 @@ def load_dim_payment():
         {"payment_type": 6, "payment_method": "Voided trip"},
     ]
 
-    with engine.begin() as connection:
+    with db_engine.begin() as connection:
         connection.execute(
             text(
                 f"""
                 INSERT INTO {DATABASE_SCHEMA}.dim_payment
                     (payment_type, payment_method)
-                VALUES
-                    (:payment_type, :payment_method);
+                VALUES (:payment_type, :payment_method)
+                ON CONFLICT (payment_type)
+                DO UPDATE SET payment_method = EXCLUDED.payment_method;
                 """
             ),
             payment_rows,
         )
 
-    print("Payment dimension loaded successfully.")
+    print("Payment dimension upserted successfully.")
 
 
-def load_fact_trips(
-    fact_trips,
-):
-    print(
-        "Converting aggregated fact data "
-        "to Pandas..."
+def load_fact_trips(fact_trips, db_engine: Engine = engine):
+    print("Converting aggregated fact data to Pandas...")
+    fact_trips_pd = fact_trips.toPandas()
+    print(f"Aggregated rows: {len(fact_trips_pd):,}")
+
+    upsert_dataframe(
+        fact_trips_pd,
+        "fact_trips",
+        ["location_id", "pickup_date", "hour", "payment_type"],
+        db_engine,
+        DATABASE_SCHEMA,
     )
 
-    fact_trips_pd = (
-        fact_trips.toPandas()
-    )
-
-    print(
-        f"Aggregated rows: "
-        f"{len(fact_trips_pd):,}"
-    )
-
-    # Batch insert
-    fact_trips_pd.to_sql(
-        name="fact_trips",
-        con=engine,
-        schema=DATABASE_SCHEMA,
-        if_exists="append",
-        index=False,
-        chunksize=5000,
-        method="multi",
-    )
-
-    print(
-        "Business fact data loaded "
-        "successfully."
-    )
+    print("Business fact data loaded successfully.")
 
 
-# --------------------------------------------------
-# Validate PostgreSQL load
-# --------------------------------------------------
-
-def validate_load():
+def validate_load(db_engine: Engine = engine):
     query = text(
         f"""
         SELECT
@@ -219,77 +145,50 @@ def validate_load():
         """
     )
 
-    with engine.connect() as connection:
-        result = (
-            connection.execute(query)
-            .mappings()
-            .one()
-        )
+    with db_engine.connect() as connection:
+        result = connection.execute(query).mappings().one()
 
     print()
     print("PostgreSQL validation")
     print("---------------------")
-    print(
-        f"Fact rows:   "
-        f"{result['fact_rows']:,}"
-    )
-    print(
-        f"Total trips: "
-        f"{result['total_trips']:,}"
-    )
-    print(
-        f"Date range:  "
-        f"{result['min_date']} "
-        f"to {result['max_date']}"
-    )
-    print(
-        f"Hour range:  "
-        f"{result['min_hour']} "
-        f"to {result['max_hour']}"
-    )
+    print(f"Fact rows:   {result['fact_rows']:,}")
+    print(f"Total trips: {result['total_trips']:,}")
+    print(f"Date range:  {result['min_date']} to {result['max_date']}")
+    print(f"Hour range:  {result['min_hour']} to {result['max_hour']}")
 
 
-# --------------------------------------------------
-# Main workflow
-# --------------------------------------------------
-
-def main():
-    spark = create_spark_session(
-        "LoadBusinessDataToPostgres"
-    )
-
-    print(
-        "Loading cleaned business trips..."
-    )
-
-    business_trips = (
-        spark.read.parquet(
-            BUSINESS_TRIPS_PATH
+def main(
+    year: int | None = None,
+    month: int | None = None,
+    db_engine: Engine = engine,
+):
+    if (year is None) != (month is None):
+        raise ValueError(
+            "year and month must either both be provided or both be omitted."
         )
-    )
 
-    print(
-        "Building aggregated fact_trips..."
-    )
+    spark = create_spark_session("LoadBusinessDataToPostgres")
 
-    fact_trips = build_fact_trips(
-        business_trips
-    )
+    if year is not None and month is not None:
+        business_path = _monthly_path(
+            BUSINESS_TRIPS_PATH,
+            year,
+            month,
+        )
+    else:
+        business_path = BUSINESS_TRIPS_PATH
 
+    print(f"Loading cleaned business trips: {business_path}")
+    business_trips = spark.read.parquet(str(business_path))
+
+    print("Building aggregated fact_trips...")
+    fact_trips = build_fact_trips(business_trips)
     fact_rows = fact_trips.count()
+    print(f"Fact rows before database load: {fact_rows:,}")
 
-    print(
-        f"Fact rows before database load: "
-        f"{fact_rows:,}"
-    )
-
-    load_dim_payment()
-
-    load_fact_trips(
-        fact_trips
-    )
-
-    validate_load()
+    load_dim_payment(db_engine)
+    load_fact_trips(fact_trips, db_engine)
+    validate_load(db_engine)
 
     spark.stop()
 

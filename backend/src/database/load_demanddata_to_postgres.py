@@ -1,50 +1,49 @@
 import pandas as pd
+from sqlalchemy.engine import Engine
 
 from backend.src.config.settings import (
     APP_DATA_DIR,
     DATABASE_SCHEMA,
 )
 from backend.src.database.connection import engine
+from backend.src.database.upsert import upsert_dataframe
 
 
-def load_demanddata_to_postgres():
-    # --------------------------------------------------
-    # Paths
-    # --------------------------------------------------
+def _monthly_path(root, year: int, month: int):
+    if not 1 <= month <= 12:
+        raise ValueError(
+            f"month must be between 1 and 12. Received: {month}"
+        )
+    return root / f"year={year}" / f"month={month:02d}"
+
+
+def load_demanddata_to_postgres(
+    year: int | None = None,
+    month: int | None = None,
+    db_engine: Engine = engine,
+):
+    if (year is None) != (month is None):
+        raise ValueError(
+            "year and month must either both be provided or both be omitted."
+        )
 
     zones_path = APP_DATA_DIR / "zones.parquet"
+    eda_root = APP_DATA_DIR / "eda"
 
-    demand_path = (
-        APP_DATA_DIR
-        / "eda"
-        / "zone_hour_daily.parquet"
-    )
-
-    # --------------------------------------------------
-    # Load source data
-    # --------------------------------------------------
+    if year is not None and month is not None:
+        demand_path = (
+            _monthly_path(eda_root, year, month)
+            / "zone_hour_daily.parquet"
+        )
+    else:
+        demand_path = eda_root / "zone_hour_daily.parquet"
 
     zones_df = pd.read_parquet(zones_path)
-
     demand_df = pd.read_parquet(demand_path)
-
-    demand_df["date"] = pd.to_datetime(
-        demand_df["date"]
-    )
-
-    # --------------------------------------------------
-    # dim_zone
-    # --------------------------------------------------
+    demand_df["date"] = pd.to_datetime(demand_df["date"])
 
     dim_zone = (
-        zones_df[
-            [
-                "LocationID",
-                "Borough",
-                "Zone",
-                "service_zone",
-            ]
-        ]
+        zones_df[["LocationID", "Borough", "Zone", "service_zone"]]
         .rename(
             columns={
                 "LocationID": "location_id",
@@ -52,55 +51,22 @@ def load_demanddata_to_postgres():
                 "Zone": "zone",
             }
         )
-        .drop_duplicates(
-            subset=["location_id"]
-        )
+        .drop_duplicates(subset=["location_id"])
         .sort_values("location_id")
     )
 
-    # --------------------------------------------------
-    # dim_date
-    # --------------------------------------------------
-
     dim_date = (
-        demand_df[
-            [
-                "date",
-                "weekday_number",
-                "weekday",
-            ]
-        ]
-        .drop_duplicates(
-            subset=["date"]
-        )
-        .rename(
-            columns={
-                "date": "full_date",
-            }
-        )
+        demand_df[["date", "weekday_number", "weekday"]]
+        .drop_duplicates(subset=["date"])
+        .rename(columns={"date": "full_date"})
         .sort_values("full_date")
     )
 
-    dim_date["year"] = (
-        dim_date["full_date"].dt.year
-    )
-
-    dim_date["month"] = (
-        dim_date["full_date"].dt.month
-    )
-
-    dim_date["month_name"] = (
-        dim_date["full_date"].dt.month_name()
-    )
-
-    dim_date["day"] = (
-        dim_date["full_date"].dt.day
-    )
-
-    dim_date["is_weekend"] = (
-        dim_date["weekday_number"]
-        .isin([6, 7])
-    )
+    dim_date["year"] = dim_date["full_date"].dt.year
+    dim_date["month"] = dim_date["full_date"].dt.month
+    dim_date["month_name"] = dim_date["full_date"].dt.month_name()
+    dim_date["day"] = dim_date["full_date"].dt.day
+    dim_date["is_weekend"] = dim_date["weekday_number"].isin([6, 7])
 
     dim_date = dim_date[
         [
@@ -114,52 +80,23 @@ def load_demanddata_to_postgres():
             "is_weekend",
         ]
     ]
+    dim_date["full_date"] = dim_date["full_date"].dt.date
 
-    # PostgreSQL DATE instead of Timestamp
-    dim_date["full_date"] = (
-        dim_date["full_date"].dt.date
-    )
-
-    # --------------------------------------------------
-    # dim_hour
-    # --------------------------------------------------
-
-    dim_hour = pd.DataFrame(
-        {
-            "hour": list(range(24))
-        }
-    )
+    dim_hour = pd.DataFrame({"hour": list(range(24))})
 
     def get_day_part(hour):
         if 0 <= hour <= 5:
             return "Night"
-
         if 6 <= hour <= 11:
             return "Morning"
-
         if 12 <= hour <= 17:
             return "Afternoon"
-
         return "Evening"
 
-    dim_hour["day_part"] = (
-        dim_hour["hour"]
-        .apply(get_day_part)
-    )
-
-    # --------------------------------------------------
-    # fact_demand
-    # --------------------------------------------------
+    dim_hour["day_part"] = dim_hour["hour"].apply(get_day_part)
 
     fact_demand = (
-        demand_df[
-            [
-                "LocationID",
-                "date",
-                "hour",
-                "demand",
-            ]
-        ]
+        demand_df[["LocationID", "date", "hour", "demand"]]
         .rename(
             columns={
                 "LocationID": "location_id",
@@ -167,68 +104,43 @@ def load_demanddata_to_postgres():
             }
         )
     )
+    fact_demand["pickup_date"] = fact_demand["pickup_date"].dt.date
 
-    fact_demand["pickup_date"] = (
-        fact_demand["pickup_date"].dt.date
+    print("Upserting dim_zone...")
+    upsert_dataframe(
+        dim_zone,
+        "dim_zone",
+        ["location_id"],
+        db_engine,
+        DATABASE_SCHEMA,
     )
 
-    # --------------------------------------------------
-    # Load PostgreSQL tables
-    # --------------------------------------------------
+    print("Upserting dim_date...")
+    upsert_dataframe(
+        dim_date,
+        "dim_date",
+        ["full_date"],
+        db_engine,
+        DATABASE_SCHEMA,
+    )
 
-    with engine.begin() as connection:
+    print("Upserting dim_hour...")
+    upsert_dataframe(
+        dim_hour,
+        "dim_hour",
+        ["hour"],
+        db_engine,
+        DATABASE_SCHEMA,
+    )
 
-        print("Loading dim_zone...")
-
-        dim_zone.to_sql(
-            name="dim_zone",
-            con=connection,
-            schema=DATABASE_SCHEMA,
-            if_exists="append",
-            index=False,
-            method="multi",
-            chunksize=1000,
-        )
-
-        print("Loading dim_date...")
-
-        dim_date.to_sql(
-            name="dim_date",
-            con=connection,
-            schema=DATABASE_SCHEMA,
-            if_exists="append",
-            index=False,
-            method="multi",
-            chunksize=1000,
-        )
-
-        print("Loading dim_hour...")
-
-        dim_hour.to_sql(
-            name="dim_hour",
-            con=connection,
-            schema=DATABASE_SCHEMA,
-            if_exists="append",
-            index=False,
-            method="multi",
-            chunksize=1000,
-        )
-
-        print("Loading fact_demand...")
-
-        fact_demand.to_sql(
-            name="fact_demand",
-            con=connection,
-            schema=DATABASE_SCHEMA,
-            if_exists="append",
-            index=False,
-            method="multi",
-            chunksize=5000,
-        )
-
-    # --------------------------------------------------
-    # Summary
-    # --------------------------------------------------
+    print("Upserting fact_demand...")
+    upsert_dataframe(
+        fact_demand,
+        "fact_demand",
+        ["location_id", "pickup_date", "hour"],
+        db_engine,
+        DATABASE_SCHEMA,
+    )
 
     print()
     print("Demand data loaded successfully.")

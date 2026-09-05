@@ -57,3 +57,7 @@ Thumbs.db
 # Virtual environments
 .render-test/
 .streamlit-test/
+
+# Airflow runtime files
+airflow/logs/
+airflow/config/simple_auth_manager_passwords.json

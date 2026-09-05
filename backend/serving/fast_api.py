@@ -1,4 +1,6 @@
 from datetime import date
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 
@@ -9,6 +11,10 @@ from backend.serving.schemas import (
     MetricResponse,
     FeatureImportanceResponse,
     PredictionResponse,
+    FuturePredictionRequest,
+    FuturePredictionResponse,
+    DemandDateRangeResponse,
+    FutureModelMetricResponse,
     DemandByHourResponse,
     DemandByWeekdayResponse,
     DemandOverTimeResponse,
@@ -28,6 +34,7 @@ from backend.serving.schemas import (
 )
 
 from backend.src.database.demand_queries_repo import (
+    get_demand_date_range as db_get_demand_date_range,
     get_zones as db_get_zones,
     get_demand_by_hour as db_get_demand_by_hour,
     get_demand_by_weekday as db_get_demand_by_weekday,
@@ -38,7 +45,6 @@ from backend.src.database.demand_queries_repo import (
     get_zone_demand_over_time as db_get_zone_demand_over_time,
 )
 
-
 from backend.src.database.business_queries_repo import (
     get_business_summary,
     get_revenue_over_time,
@@ -46,6 +52,12 @@ from backend.src.database.business_queries_repo import (
     get_payment_breakdown,
     get_tip_analysis,
     get_tip_analysis_by_zone,
+)
+
+from backend.src.database.future_forecast_repo import (
+    get_future_forecast_metadata as db_get_future_forecast_metadata,
+    get_future_model_metrics as db_get_future_model_metrics,
+    get_future_prediction_profile as db_get_future_prediction_profile,
 )
 
 
@@ -59,9 +71,8 @@ app = FastAPI(
 )
 
 
-
 # --------------------------------------------------
-# Load app-ready datasets
+# Load file-based historical app datasets
 # --------------------------------------------------
 
 predictions_df = pd.read_parquet(
@@ -85,6 +96,7 @@ predictions_df["pickup_hour"] = pd.to_datetime(
     predictions_df["pickup_hour"]
 )
 
+
 # --------------------------------------------------
 # Health
 # --------------------------------------------------
@@ -92,6 +104,26 @@ predictions_df["pickup_hour"] = pd.to_datetime(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# --------------------------------------------------
+# Data availability
+# --------------------------------------------------
+
+@app.get(
+    "/data-range",
+    response_model=DemandDateRangeResponse,
+)
+def get_data_range():
+    result = db_get_demand_date_range()
+
+    if result["min_date"] is None or result["max_date"] is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No demand data available",
+        )
+
+    return result
 
 
 # --------------------------------------------------
@@ -118,6 +150,22 @@ def get_metrics():
     return metrics_df.to_dict(orient="records")
 
 
+@app.get(
+    "/future-model-metrics",
+    response_model=list[FutureModelMetricResponse],
+)
+def get_future_model_metrics():
+    metrics = db_get_future_model_metrics()
+
+    if not metrics:
+        raise HTTPException(
+            status_code=404,
+            detail="No future model metrics available",
+        )
+
+    return metrics
+
+
 # --------------------------------------------------
 # Feature importance
 # --------------------------------------------------
@@ -127,9 +175,7 @@ def get_metrics():
     response_model=list[FeatureImportanceResponse],
 )
 def get_feature_importance():
-    return feature_importance_df.to_dict(
-        orient="records"
-    )
+    return feature_importance_df.to_dict(orient="records")
 
 
 # --------------------------------------------------
@@ -155,11 +201,7 @@ def get_predictions(
             detail=f"LocationID {location_id} not found",
         )
 
-    if (
-        start_date is not None
-        and end_date is not None
-        and start_date > end_date
-    ):
+    if start_date is not None and end_date is not None and start_date > end_date:
         raise HTTPException(
             status_code=400,
             detail="start_date must be before or equal to end_date",
@@ -182,6 +224,83 @@ def get_predictions(
         )
 
     return result.to_dict(orient="records")
+
+
+@app.post(
+    "/predict",
+    response_model=FuturePredictionResponse,
+)
+def predict_future_demand(
+    request: FuturePredictionRequest,
+):
+    metadata = db_get_future_forecast_metadata()
+
+    if metadata is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Future forecast metadata is not available",
+        )
+
+    future_trained_through = pd.Timestamp(
+        metadata["trained_through"]
+    )
+    forecast_datetime = request.forecast_datetime
+
+    nyc_timezone = ZoneInfo("America/New_York")
+
+    if forecast_datetime.tzinfo is not None:
+        forecast_datetime = (
+            forecast_datetime
+            .astimezone(nyc_timezone)
+            .replace(tzinfo=None)
+        )
+
+    forecast_timestamp = pd.Timestamp(forecast_datetime)
+
+    if forecast_timestamp <= future_trained_through:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "forecast_datetime must be later than "
+                f"{future_trained_through.isoformat()}"
+            ),
+        )
+
+    day_of_week = ((forecast_datetime.weekday() + 1) % 7) + 1
+    hour = forecast_datetime.hour
+
+    profile = db_get_future_prediction_profile(
+        request.location_id,
+        day_of_week,
+        hour,
+    )
+
+    if not profile["profile_rows"]:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No historical demand profile found "
+                f"for LocationID {request.location_id}"
+            ),
+        )
+
+    if profile["exact_demand"] is not None:
+        predicted_demand = float(profile["exact_demand"])
+        forecast_method = "zone_dow_hour"
+    elif profile["hour_demand"] is not None:
+        predicted_demand = float(profile["hour_demand"])
+        forecast_method = "zone_hour_fallback"
+    else:
+        predicted_demand = float(profile["zone_demand"])
+        forecast_method = "zone_fallback"
+
+    return {
+        "location_id": request.location_id,
+        "forecast_datetime": forecast_datetime,
+        "predicted_demand": predicted_demand,
+        "forecast_method": forecast_method,
+        "trained_through": future_trained_through.to_pydatetime(),
+    }
 
 
 # --------------------------------------------------
@@ -212,11 +331,7 @@ def get_demand_over_time(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
-    if (
-        start_date is not None
-        and end_date is not None
-        and start_date > end_date
-    ):
+    if start_date is not None and end_date is not None and start_date > end_date:
         raise HTTPException(
             status_code=400,
             detail="start_date must be before or equal to end_date",
@@ -225,18 +340,11 @@ def get_demand_over_time(
     result = db_get_demand_over_time()
 
     if start_date is not None:
-        result = [
-            row for row in result
-            if row["date"] >= start_date
-        ]
+        result = [row for row in result if row["date"] >= start_date]
 
     if end_date is not None:
-        result = [
-            row for row in result
-            if row["date"] <= end_date
-        ]
+        result = [row for row in result if row["date"] <= end_date]
 
-    # Preserve the existing API contract used by api_client.py/Streamlit.
     return [
         {
             "pickup_hour": row["date"],
@@ -273,28 +381,12 @@ def get_zone_demand_by_hour(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
-    if (
-        start_date is not None
-        and end_date is not None
-        and start_date > end_date
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="start_date must be before or equal to end_date",
-        )
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
 
-    result = db_get_zone_demand_by_hour(
-        location_id,
-        start_date,
-        end_date,
-    )
-
+    result = db_get_zone_demand_by_hour(location_id, start_date, end_date)
     if not result:
-        raise HTTPException(
-            status_code=404,
-            detail="No demand data found for the selected zone/date range",
-        )
-
+        raise HTTPException(status_code=404, detail="No demand data found for the selected zone/date range")
     return result
 
 
@@ -307,28 +399,12 @@ def get_zone_demand_by_weekday(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
-    if (
-        start_date is not None
-        and end_date is not None
-        and start_date > end_date
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="start_date must be before or equal to end_date",
-        )
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
 
-    result = db_get_zone_demand_by_weekday(
-        location_id,
-        start_date,
-        end_date,
-    )
-
+    result = db_get_zone_demand_by_weekday(location_id, start_date, end_date)
     if not result:
-        raise HTTPException(
-            status_code=404,
-            detail="No demand data found for the selected zone/date range",
-        )
-
+        raise HTTPException(status_code=404, detail="No demand data found for the selected zone/date range")
     return result
 
 
@@ -341,36 +417,18 @@ def get_zone_demand_over_time(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
-    if (
-        start_date is not None
-        and end_date is not None
-        and start_date > end_date
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="start_date must be before or equal to end_date",
-        )
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
 
-    result = db_get_zone_demand_over_time(
-        location_id,
-        start_date,
-        end_date,
-    )
-
+    result = db_get_zone_demand_over_time(location_id, start_date, end_date)
     if not result:
-        raise HTTPException(
-            status_code=404,
-            detail="No demand data found for the selected zone/date range",
-        )
-
+        raise HTTPException(status_code=404, detail="No demand data found for the selected zone/date range")
     return result
-
 
 
 # --------------------------------------------------
 # Business Insights
 # --------------------------------------------------
-
 
 @app.get(
     "/business/summary",
