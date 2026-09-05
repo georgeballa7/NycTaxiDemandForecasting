@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from pathlib import Path
-import json
 
 import pandas as pd
 from pyspark.sql import functions as F
@@ -33,17 +32,6 @@ def publish_future_forecast_data():
         / "data"
         / "processed"
         / "future_model_backtest.csv"
-    )
-
-    app_dir = (
-        project_root
-        / "data"
-        / "app"
-        / "future_forecast"
-    )
-    app_dir.mkdir(
-        parents=True,
-        exist_ok=True,
     )
 
     hourly_demand = spark.read.parquet(
@@ -94,16 +82,6 @@ def publish_future_forecast_data():
 
     profiles_pandas = profiles.toPandas()
 
-    profiles_path = (
-        app_dir
-        / "future_demand_profiles.parquet"
-    )
-
-    profiles_pandas.to_parquet(
-        profiles_path,
-        index=False,
-    )
-
     if not backtest_path.exists():
         raise FileNotFoundError(
             "Future-model backtest results not found: "
@@ -141,12 +119,6 @@ def publish_future_forecast_data():
         ]
     )
 
-    metrics.to_csv(
-        app_dir
-        / "future_model_metrics.csv",
-        index=False,
-    )
-
     metadata = {
         "production_model": "zone_dow_hour_mean",
         "trained_through": latest_timestamp.isoformat(),
@@ -160,17 +132,6 @@ def publish_future_forecast_data():
         ],
         "profile_rows": len(profiles_pandas),
     }
-
-    with open(
-        app_dir / "metadata.json",
-        "w",
-        encoding="utf-8",
-    ) as file:
-        json.dump(
-            metadata,
-            file,
-            indent=2,
-        )
 
     print("Publishing future forecast snapshot to local PostgreSQL...")
     replace_future_forecast_data(
@@ -196,12 +157,7 @@ def publish_future_forecast_data():
 
     spark.stop()
 
-    print(
-        "Future forecast artifacts published."
-    )
-    print(
-        f"Profiles: {profiles_path}"
-    )
+    print("Future forecast database snapshot published.")
     print(
         f"Trained through: {latest_timestamp}"
     )
