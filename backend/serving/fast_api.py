@@ -1,5 +1,4 @@
 from datetime import date
-import json
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -55,6 +54,12 @@ from backend.src.database.business_queries_repo import (
     get_tip_analysis_by_zone,
 )
 
+from backend.src.database.future_forecast_repo import (
+    get_future_forecast_metadata as db_get_future_forecast_metadata,
+    get_future_model_metrics as db_get_future_model_metrics,
+    get_future_prediction_profile as db_get_future_prediction_profile,
+)
+
 
 app = FastAPI(
     title="NYC Taxi Demand Forecasting API",
@@ -67,7 +72,7 @@ app = FastAPI(
 
 
 # --------------------------------------------------
-# Load app-ready datasets
+# Load file-based historical app datasets
 # --------------------------------------------------
 
 predictions_df = pd.read_parquet(
@@ -80,26 +85,6 @@ metrics_df = pd.read_csv(
 
 feature_importance_df = pd.read_csv(
     APP_DATA_DIR / "feature_importance.csv"
-)
-
-future_forecast_dir = APP_DATA_DIR / "future_forecast"
-
-future_profiles_df = pd.read_parquet(
-    future_forecast_dir / "future_demand_profiles.parquet"
-)
-
-future_model_metrics_df = pd.read_csv(
-    future_forecast_dir / "future_model_metrics.csv"
-)
-
-with open(
-    future_forecast_dir / "metadata.json",
-    encoding="utf-8",
-) as file:
-    future_forecast_metadata = json.load(file)
-
-future_trained_through = pd.Timestamp(
-    future_forecast_metadata["trained_through"]
 )
 
 
@@ -170,7 +155,15 @@ def get_metrics():
     response_model=list[FutureModelMetricResponse],
 )
 def get_future_model_metrics():
-    return future_model_metrics_df.to_dict(orient="records")
+    metrics = db_get_future_model_metrics()
+
+    if not metrics:
+        raise HTTPException(
+            status_code=404,
+            detail="No future model metrics available",
+        )
+
+    return metrics
 
 
 # --------------------------------------------------
@@ -240,6 +233,17 @@ def get_predictions(
 def predict_future_demand(
     request: FuturePredictionRequest,
 ):
+    metadata = db_get_future_forecast_metadata()
+
+    if metadata is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Future forecast metadata is not available",
+        )
+
+    future_trained_through = pd.Timestamp(
+        metadata["trained_through"]
+    )
     forecast_datetime = request.forecast_datetime
 
     nyc_timezone = ZoneInfo("America/New_York")
@@ -265,11 +269,13 @@ def predict_future_demand(
     day_of_week = ((forecast_datetime.weekday() + 1) % 7) + 1
     hour = forecast_datetime.hour
 
-    zone_profiles = future_profiles_df[
-        future_profiles_df["LocationID"] == request.location_id
-    ]
+    profile = db_get_future_prediction_profile(
+        request.location_id,
+        day_of_week,
+        hour,
+    )
 
-    if zone_profiles.empty:
+    if not profile["profile_rows"]:
         raise HTTPException(
             status_code=404,
             detail=(
@@ -278,31 +284,15 @@ def predict_future_demand(
             ),
         )
 
-    exact_profile = zone_profiles[
-        (zone_profiles["day_of_week"] == day_of_week)
-        & (zone_profiles["hour"] == hour)
-    ]
-
-    if not exact_profile.empty:
-        predicted_demand = float(
-            exact_profile.iloc[0]["predicted_demand"]
-        )
+    if profile["exact_demand"] is not None:
+        predicted_demand = float(profile["exact_demand"])
         forecast_method = "zone_dow_hour"
+    elif profile["hour_demand"] is not None:
+        predicted_demand = float(profile["hour_demand"])
+        forecast_method = "zone_hour_fallback"
     else:
-        zone_hour_profiles = zone_profiles[
-            zone_profiles["hour"] == hour
-        ]
-
-        if not zone_hour_profiles.empty:
-            predicted_demand = float(
-                zone_hour_profiles["predicted_demand"].mean()
-            )
-            forecast_method = "zone_hour_fallback"
-        else:
-            predicted_demand = float(
-                zone_profiles["predicted_demand"].mean()
-            )
-            forecast_method = "zone_fallback"
+        predicted_demand = float(profile["zone_demand"])
+        forecast_method = "zone_fallback"
 
     return {
         "location_id": request.location_id,
