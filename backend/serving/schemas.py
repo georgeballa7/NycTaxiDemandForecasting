@@ -21,6 +21,13 @@ class DemandDateRangeResponse(BaseModel):
     max_date: date
 
 
+class FutureModelMetricResponse(BaseModel):
+    model: str
+    mae: float
+    rmse: float
+    backtest_months: int
+
+
 class ZoneResponse(BaseModel):
     LocationID: int
     Borough: str
