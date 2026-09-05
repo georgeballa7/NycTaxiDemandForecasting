@@ -2,6 +2,19 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class FuturePredictionRequest(BaseModel):
+    location_id: int
+    forecast_datetime: datetime
+
+
+class FuturePredictionResponse(BaseModel):
+    location_id: int
+    forecast_datetime: datetime
+    predicted_demand: float
+    forecast_method: str
+    trained_through: datetime
+
+
 class ZoneResponse(BaseModel):
     LocationID: int
     Borough: str
