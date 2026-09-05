@@ -14,6 +14,7 @@ from backend.serving.schemas import (
     PredictionResponse,
     FuturePredictionRequest,
     FuturePredictionResponse,
+    DemandDateRangeResponse,
     DemandByHourResponse,
     DemandByWeekdayResponse,
     DemandOverTimeResponse,
@@ -33,6 +34,7 @@ from backend.serving.schemas import (
 )
 
 from backend.src.database.demand_queries_repo import (
+    get_demand_date_range as db_get_demand_date_range,
     get_zones as db_get_zones,
     get_demand_by_hour as db_get_demand_by_hour,
     get_demand_by_weekday as db_get_demand_by_weekday,
@@ -42,7 +44,6 @@ from backend.src.database.demand_queries_repo import (
     get_zone_demand_by_weekday as db_get_zone_demand_by_weekday,
     get_zone_demand_over_time as db_get_zone_demand_over_time,
 )
-
 
 from backend.src.database.business_queries_repo import (
     get_business_summary,
@@ -64,7 +65,6 @@ app = FastAPI(
 )
 
 
-
 # --------------------------------------------------
 # Load app-ready datasets
 # --------------------------------------------------
@@ -81,13 +81,10 @@ feature_importance_df = pd.read_csv(
     APP_DATA_DIR / "feature_importance.csv"
 )
 
-future_forecast_dir = (
-    APP_DATA_DIR / "future_forecast"
-)
+future_forecast_dir = APP_DATA_DIR / "future_forecast"
 
 future_profiles_df = pd.read_parquet(
-    future_forecast_dir
-    / "future_demand_profiles.parquet"
+    future_forecast_dir / "future_demand_profiles.parquet"
 )
 
 with open(
@@ -109,6 +106,7 @@ predictions_df["pickup_hour"] = pd.to_datetime(
     predictions_df["pickup_hour"]
 )
 
+
 # --------------------------------------------------
 # Health
 # --------------------------------------------------
@@ -116,6 +114,29 @@ predictions_df["pickup_hour"] = pd.to_datetime(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# --------------------------------------------------
+# Data availability
+# --------------------------------------------------
+
+@app.get(
+    "/data-range",
+    response_model=DemandDateRangeResponse,
+)
+def get_data_range():
+    result = db_get_demand_date_range()
+
+    if (
+        result["min_date"] is None
+        or result["max_date"] is None
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="No demand data available",
+        )
+
+    return result
 
 
 # --------------------------------------------------
@@ -291,9 +312,7 @@ def predict_future_demand(
                     "predicted_demand"
                 ].mean()
             )
-            forecast_method = (
-                "zone_hour_fallback"
-            )
+            forecast_method = "zone_hour_fallback"
 
         else:
             predicted_demand = float(
@@ -497,11 +516,9 @@ def get_zone_demand_over_time(
     return result
 
 
-
 # --------------------------------------------------
 # Business Insights
 # --------------------------------------------------
-
 
 @app.get(
     "/business/summary",
