@@ -76,6 +76,8 @@ Key operational behavior:
 - maintains pipeline state in PostgreSQL
 - updates local PostgreSQL and production Supabase
 - reruns the shared ML pipeline after successful ingestion
+- sends Slack notifications after successful retraining and on pipeline/task failures
+- keeps normal daily no-op runs silent when no new TLC month is available
 - supports a separate manual backfill workflow for controlled catch-up processing
 
 ## Analytical Data Model
@@ -121,6 +123,7 @@ The database is an analytical/serving model rather than a raw trip store. The fu
 - Complete zone-hour demand panel including zero-demand observations
 - PostgreSQL/Supabase dimensional analytical model
 - Pipeline-state tracking for incremental processing
+- Slack operational alerts for retraining success and pipeline failures
 - Spark Random Forest for historical demand-model validation
 - Rolling future-month backtesting for production model selection
 - Database-backed long-horizon future demand inference
@@ -224,6 +227,7 @@ Historical files remain under `data/app/` to avoid unnecessary production databa
 | Machine Learning | Spark ML Random Forest, temporal profile forecasting |
 | Backend | FastAPI, SQLAlchemy |
 | Frontend | Streamlit, Plotly |
+| Monitoring | Slack Incoming Webhooks |
 | Deployment | Render, Streamlit Community Cloud, Supabase |
 | Development | Git, GitHub |
 
