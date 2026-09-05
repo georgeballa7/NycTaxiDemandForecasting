@@ -1,3 +1,0 @@
-model,mae,rmse,backtest_months
-zone_dow_hour_mean,6.403043477486458,16.03989426704262,4
-random_forest,7.324475939062692,19.739079367997427,4
