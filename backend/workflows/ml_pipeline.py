@@ -1,4 +1,6 @@
 from backend.src.ml.prepare_app_data import prepare_app_data
+from backend.src.ml.publish_future_forecast import publish_future_forecast_data
+from backend.src.ml.train_future_model import train_future_model
 from backend.src.ml.train_model import train_model
 
 
@@ -9,6 +11,11 @@ def run_ml_pipeline():
     spark.stop()
 
     prepare_app_data()
+
+    future_result = train_future_model()
+    future_result["spark"].stop()
+
+    publish_future_forecast_data()
 
     print("ML pipeline completed successfully.")
 
