@@ -30,6 +30,10 @@ def get_health():
     return _get("/health")
 
 
+def get_demand_date_range():
+    return _get("/data-range")
+
+
 def get_zones():
     return _get("/zones")
 
@@ -192,5 +196,6 @@ def get_tip_analysis():
 def get_tip_analysis_by_zone(limit: int = 10):
     return _get(
         "/business/tip-analysis-by-zone",
-        params={"limit": limit},
+        params={"limit": limit,
+        },
     )
