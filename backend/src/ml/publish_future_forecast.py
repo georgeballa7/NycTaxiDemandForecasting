@@ -5,6 +5,10 @@ import json
 import pandas as pd
 from pyspark.sql import functions as F
 
+from backend.src.database.connection import engine, supabase_engine
+from backend.src.database.future_forecast_repo import (
+    replace_future_forecast_data,
+)
 from backend.src.ingestion.spark_session import (
     create_spark_session,
 )
@@ -166,6 +170,28 @@ def publish_future_forecast_data():
             metadata,
             file,
             indent=2,
+        )
+
+    print("Publishing future forecast snapshot to local PostgreSQL...")
+    replace_future_forecast_data(
+        profiles_pandas,
+        metrics,
+        metadata,
+        engine,
+    )
+
+    if supabase_engine is not None:
+        print("Publishing future forecast snapshot to Supabase PostgreSQL...")
+        replace_future_forecast_data(
+            profiles_pandas,
+            metrics,
+            metadata,
+            supabase_engine,
+        )
+    else:
+        print(
+            "SUPABASE_DATABASE_URL is not configured; "
+            "future forecast Supabase publish skipped."
         )
 
     spark.stop()
