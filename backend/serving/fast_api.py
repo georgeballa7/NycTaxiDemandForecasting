@@ -1,4 +1,7 @@
 from datetime import date
+import json
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 
@@ -9,6 +12,8 @@ from backend.serving.schemas import (
     MetricResponse,
     FeatureImportanceResponse,
     PredictionResponse,
+    FuturePredictionRequest,
+    FuturePredictionResponse,
     DemandByHourResponse,
     DemandByWeekdayResponse,
     DemandOverTimeResponse,
@@ -74,6 +79,25 @@ metrics_df = pd.read_csv(
 
 feature_importance_df = pd.read_csv(
     APP_DATA_DIR / "feature_importance.csv"
+)
+
+future_forecast_dir = (
+    APP_DATA_DIR / "future_forecast"
+)
+
+future_profiles_df = pd.read_parquet(
+    future_forecast_dir
+    / "future_demand_profiles.parquet"
+)
+
+with open(
+    future_forecast_dir / "metadata.json",
+    encoding="utf-8",
+) as file:
+    future_forecast_metadata = json.load(file)
+
+future_trained_through = pd.Timestamp(
+    future_forecast_metadata["trained_through"]
 )
 
 
@@ -182,6 +206,113 @@ def get_predictions(
         )
 
     return result.to_dict(orient="records")
+
+
+@app.post(
+    "/predict",
+    response_model=FuturePredictionResponse,
+)
+def predict_future_demand(
+    request: FuturePredictionRequest,
+):
+    forecast_datetime = request.forecast_datetime
+
+    nyc_timezone = ZoneInfo("America/New_York")
+
+    if forecast_datetime.tzinfo is not None:
+        forecast_datetime = (
+            forecast_datetime
+            .astimezone(nyc_timezone)
+            .replace(tzinfo=None)
+        )
+
+    forecast_timestamp = pd.Timestamp(
+        forecast_datetime
+    )
+
+    if forecast_timestamp <= future_trained_through:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "forecast_datetime must be later than "
+                f"{future_trained_through.isoformat()}"
+            ),
+        )
+
+    # Match Spark dayofweek:
+    # Sunday=1, Monday=2, ..., Saturday=7
+    day_of_week = (
+        (forecast_datetime.weekday() + 1) % 7
+    ) + 1
+
+    hour = forecast_datetime.hour
+
+    zone_profiles = future_profiles_df[
+        future_profiles_df["LocationID"]
+        == request.location_id
+    ]
+
+    if zone_profiles.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No historical demand profile found "
+                f"for LocationID {request.location_id}"
+            ),
+        )
+
+    exact_profile = zone_profiles[
+        (
+            zone_profiles["day_of_week"]
+            == day_of_week
+        )
+        & (
+            zone_profiles["hour"]
+            == hour
+        )
+    ]
+
+    if not exact_profile.empty:
+        predicted_demand = float(
+            exact_profile.iloc[0][
+                "predicted_demand"
+            ]
+        )
+        forecast_method = "zone_dow_hour"
+
+    else:
+        zone_hour_profiles = zone_profiles[
+            zone_profiles["hour"] == hour
+        ]
+
+        if not zone_hour_profiles.empty:
+            predicted_demand = float(
+                zone_hour_profiles[
+                    "predicted_demand"
+                ].mean()
+            )
+            forecast_method = (
+                "zone_hour_fallback"
+            )
+
+        else:
+            predicted_demand = float(
+                zone_profiles[
+                    "predicted_demand"
+                ].mean()
+            )
+            forecast_method = "zone_fallback"
+
+    return {
+        "location_id": request.location_id,
+        "forecast_datetime": forecast_datetime,
+        "predicted_demand": predicted_demand,
+        "forecast_method": forecast_method,
+        "trained_through": (
+            future_trained_through
+            .to_pydatetime()
+        ),
+    }
 
 
 # --------------------------------------------------
