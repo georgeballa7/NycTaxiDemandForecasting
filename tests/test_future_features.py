@@ -1,4 +1,6 @@
 import math
+import os
+import sys
 
 import pytest
 from pyspark.sql import SparkSession
@@ -12,10 +14,17 @@ from backend.src.features.build_future_features import (
 
 @pytest.fixture(scope="module")
 def spark():
+    # Spark launches separate Python workers. Point them explicitly at the
+    # interpreter running pytest so Conda, Windows and CI use the same Python.
+    os.environ["PYSPARK_PYTHON"] = sys.executable
+    os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+
     session = (
         SparkSession.builder.master("local[1]")
         .appName("nyc-taxi-tests")
         .config("spark.ui.enabled", "false")
+        .config("spark.pyspark.python", sys.executable)
+        .config("spark.pyspark.driver.python", sys.executable)
         .getOrCreate()
     )
     yield session
