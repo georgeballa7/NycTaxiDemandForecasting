@@ -121,14 +121,12 @@ def replace_future_forecast_data(
         connection.execute(text("DELETE FROM taxi_analytics.future_demand_profile"))
         connection.execute(text("DELETE FROM taxi_analytics.future_model_metric"))
         connection.execute(text("DELETE FROM taxi_analytics.future_forecast_metadata"))
-
         batch_size = 500
         for start in range(0, len(profile_rows), batch_size):
             connection.execute(
                 _PROFILE_INSERT_SQL,
                 profile_rows[start : start + batch_size],
             )
-
         if metric_rows:
             connection.execute(
                 text(
@@ -140,7 +138,6 @@ def replace_future_forecast_data(
                 ),
                 metric_rows,
             )
-
         connection.execute(
             text(
                 """
@@ -195,31 +192,67 @@ def get_future_prediction_profile(
     day_of_week: int,
     hour: int,
 ):
-    query = text(
-        """
-        SELECT
-            COUNT(*) AS profile_rows,
-            MAX(CASE
-                WHEN month = :month AND day_of_week = :day_of_week AND hour = :hour
-                THEN predicted_demand END
-            ) AS exact_demand,
-            AVG(CASE
-                WHEN month = :month AND hour = :hour THEN predicted_demand END
-            ) AS month_hour_demand,
-            AVG(CASE WHEN hour = :hour THEN predicted_demand END) AS hour_demand,
-            AVG(predicted_demand) AS zone_demand
-        FROM taxi_analytics.future_demand_profile
-        WHERE location_id = :location_id;
-        """
-    )
+    """Read the new month-aware profile, with compatibility for old snapshots."""
     with engine.connect() as connection:
-        row = connection.execute(
-            query,
-            {
+        has_month = connection.execute(
+            text(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'taxi_analytics'
+                      AND table_name = 'future_demand_profile'
+                      AND column_name = 'month'
+                );
+                """
+            )
+        ).scalar_one()
+
+        if has_month:
+            query = text(
+                """
+                SELECT
+                    COUNT(*) AS profile_rows,
+                    MAX(CASE
+                        WHEN month = :month AND day_of_week = :day_of_week
+                             AND hour = :hour THEN predicted_demand END
+                    ) AS exact_demand,
+                    AVG(CASE
+                        WHEN month = :month AND hour = :hour
+                        THEN predicted_demand END
+                    ) AS month_hour_demand,
+                    AVG(CASE WHEN hour = :hour THEN predicted_demand END) AS hour_demand,
+                    AVG(predicted_demand) AS zone_demand
+                FROM taxi_analytics.future_demand_profile
+                WHERE location_id = :location_id;
+                """
+            )
+            params = {
                 "location_id": location_id,
                 "month": month,
                 "day_of_week": day_of_week,
                 "hour": hour,
-            },
-        ).one()
+            }
+        else:
+            query = text(
+                """
+                SELECT
+                    COUNT(*) AS profile_rows,
+                    MAX(CASE
+                        WHEN day_of_week = :day_of_week AND hour = :hour
+                        THEN predicted_demand END
+                    ) AS exact_demand,
+                    NULL::DOUBLE PRECISION AS month_hour_demand,
+                    AVG(CASE WHEN hour = :hour THEN predicted_demand END) AS hour_demand,
+                    AVG(predicted_demand) AS zone_demand
+                FROM taxi_analytics.future_demand_profile
+                WHERE location_id = :location_id;
+                """
+            )
+            params = {
+                "location_id": location_id,
+                "day_of_week": day_of_week,
+                "hour": hour,
+            }
+
+        row = connection.execute(query, params).one()
         return dict(row._mapping)
