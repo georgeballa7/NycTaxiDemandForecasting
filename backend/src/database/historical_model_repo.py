@@ -144,7 +144,11 @@ def replace_historical_model_data(
                 )
                 """
             )
-            batch_size = 5000
+            # Keep batches deliberately small for remote PostgreSQL/Supabase.
+            # The Parquet file is compact on disk, but the snapshot expands to
+            # many SQL rows and large executemany calls can exhaust a pooled
+            # connection or hit remote transaction/network limits.
+            batch_size = 500
             for start in range(0, len(prediction_rows), batch_size):
                 connection.execute(
                     statement,
