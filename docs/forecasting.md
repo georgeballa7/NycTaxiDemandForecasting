@@ -2,104 +2,83 @@
 
 ## Forecasting tasks
 
-The project distinguishes two related forecasting tasks:
+The project deliberately separates two forecasting problems:
 
-1. **Historical model evaluation** — a Spark Random Forest using lag and rolling-demand features.
-2. **Future demand inference** — a long-horizon forecasting model validated with future-month backtests and served from PostgreSQL/Supabase.
+1. **Historical model evaluation** — a Spark Random Forest using observed lag and rolling-demand features.
+2. **True future inference** — long-horizon forecasting using only information available before the requested future timestamp.
 
-Both estimate hourly cleaned Yellow Taxi pickup demand at taxi-zone level, but they have different purposes and feature-availability constraints.
+Both estimate hourly cleaned Yellow Taxi pickup demand at taxi-zone level, but their feature-availability constraints are different.
 
 ## Historical Random Forest
 
-The historical Spark ML model uses 13 predictors:
+The historical model uses time, lag and rolling-demand predictors. This is appropriate for historical/near-term evaluation because recent observed demand exists. The validated May 2026 snapshot achieved MAE 4.63 and RMSE 15.97 versus baseline MAE 6.51 and RMSE 21.84.
+
+Historical predictions, metrics and feature importance are published to PostgreSQL/Supabase after training and served by FastAPI.
+
+## Why the future model is separate
+
+Features such as `lag_1h`, `lag_24h`, `lag_168h` and rolling observed demand cannot be known for an arbitrary date months into the future. The future pipeline therefore excludes them and uses only forecast-safe predictors.
+
+## Forecast-safe feature set
+
+Calendar features known in advance:
 
 - `hour`
 - `day_of_week`
-- `day_of_month`
+- `month`
 - `is_weekend`
-- `hour_sin`
-- `hour_cos`
-- `dow_sin`
-- `dow_cos`
-- `lag_1h`
-- `lag_24h`
-- `lag_168h`
-- `rolling_mean_24h`
-- `rolling_mean_168h`
+- cyclical hour, weekday and month sine/cosine encodings
 
-Rolling windows exclude the current target observation. Rows are retained for modeling only after a complete seven-day trailing history is available.
+Historical aggregate features:
 
-The Spark `RandomForestRegressor` uses 100 trees, maximum depth 10 and random seed 42.
+- `zone_mean_demand`
+- `zone_hour_mean`
+- `zone_dow_hour_mean`
 
-### Latest validated historical retraining
+During rolling backtesting, each aggregate is calculated strictly from months earlier than the test month. This prevents target leakage. `LocationID` is treated as a categorical zone identifier through `StringIndexer` + `OneHotEncoder`, rather than as an ordinal number.
 
-Using data through May 2026:
+## Rolling model selection
 
-| Metric | Baseline | Random Forest |
-|---|---:|---:|
-| MAE | 6.51 | **4.63** |
-| RMSE | 21.84 | **15.97** |
+The latest four available calendar months are used as temporal holdouts. Every candidate is evaluated on the same splits with MAE and RMSE:
 
-Training rows: **2,079,720**  
-Test rows: **197,160**  
-Latest data timestamp: **2026-05-31 23:00:00**  
-Test period: **May 2026**
+- `zone_dow_hour_mean` — strong transparent baseline
+- `linear_regression`
+- `random_forest`
+- `gradient_boosted_trees`
 
-Historical predictions, model metrics and feature importance are published to PostgreSQL/Supabase after training. FastAPI reads them from the database rather than `data/app` files.
+MAE is the primary production-selection metric because it is directly interpretable as average hourly demand error; RMSE is the tie-breaker. The winning model is selected automatically after every future-model retraining. The pipeline writes both per-month results and an aggregate model summary.
 
-## Why a separate future model is needed
+This means the project no longer hard-codes `zone_dow_hour_mean` as the production model. If the simple baseline remains best, it stays in production. If Linear Regression, Random Forest or GBT beats it on the temporal backtest, that model is published instead.
 
-Lag-based features such as `lag_1h`, `lag_24h` and `lag_168h` require recent observed demand. They are appropriate for historical/near-term evaluation but are not naturally available for an arbitrary date months into the future.
+## Production scoring
 
-For long-horizon user-facing forecasts, models must be validated using features available at prediction time.
-
-## Rolling future-model validation
-
-Four future months were evaluated:
-
-| Test month | Profile MAE | Profile RMSE | RF MAE | RF RMSE |
-|---|---:|---:|---:|---:|
-| 2026-02 | 7.3255 | 19.1128 | 7.5178 | 19.4840 |
-| 2026-03 | 6.0025 | 14.7159 | 7.2744 | 20.4239 |
-| 2026-04 | 5.7818 | 14.0006 | 6.5784 | 17.5946 |
-| 2026-05 | 6.5023 | 16.3303 | 7.9272 | 21.4538 |
-
-Aggregate results:
-
-| Model | MAE | RMSE | Backtest months |
-|---|---:|---:|---:|
-| `zone_dow_hour_mean` | **6.4030** | **16.0399** | 4 |
-| `random_forest` | 7.3245 | 19.7391 | 4 |
-
-The profile model currently wins the validated future comparison and is therefore the **production future forecasting model**.
-
-## Production future model
-
-`zone_dow_hour_mean` computes average historical demand for:
+After model selection, the publisher builds a true-future scoring grid across:
 
 ```text
-LocationID × Spark day_of_week × hour
+LocationID × month × day_of_week × hour
 ```
 
-Validated snapshot through May 2026:
+Historical aggregate features are calculated from all observations available through the current training cutoff. If an ML candidate wins, it is fitted on the available leakage-safe training data and scores this grid. If the profile baseline wins, its historical zone/day/hour mean is used directly.
 
-- production model: `zone_dow_hour_mean`
-- trained through: `2026-05-31 23:00:00`
-- profile rows: `41,604`
+Predictions are clipped at zero because taxi-trip demand cannot be negative.
 
 ## Future prediction serving
 
-FastAPI exposes `GET /future-model-metrics` and `POST /predict`. The prediction endpoint maps a future datetime to the published profile and uses this fallback order:
+The selected forecast snapshot is published transactionally to local PostgreSQL and, when configured, Supabase. FastAPI exposes `GET /future-model-metrics` and `POST /predict`.
+
+`POST /predict` converts the requested datetime to New York local time when needed and looks up:
 
 ```text
-exact zone + day-of-week + hour
+zone + month + day-of-week + hour
         ↓
-zone + hour average
+zone + month + hour fallback
         ↓
-zone overall average
+zone + hour fallback
+        ↓
+zone overall fallback
 ```
 
-A forecast datetime at or before the model's `trained_through` timestamp returns HTTP 400.
+The response's `forecast_method` reports the selected production model for an exact profile match. A requested datetime at or before `trained_through` returns HTTP 400.
 
 ## Serving storage
 
@@ -115,7 +94,9 @@ Future serving tables:
 - `taxi_analytics.future_model_metric`
 - `taxi_analytics.future_forecast_metadata`
 
-Both historical and future serving are database-backed. There is no manual Git deployment step for model-serving snapshots after retraining.
+`future_demand_profile` is month-aware. Existing installations are migrated automatically by the repository before the next snapshot replacement.
+
+Both historical and future serving are database-backed. There is no manual Git deployment step for monthly model-serving snapshots after retraining.
 
 ## ML orchestration
 
@@ -126,17 +107,19 @@ Historical Random Forest
         ↓
 Historical database publisher
         ↓
-Future rolling backtest
+Future temporal model comparison
+        ↓
+Automatic production-model selection
+        ↓
+Month-aware future profile generation
         ↓
 Future database publisher
         ↓
 Local PostgreSQL + Supabase
 ```
 
-## Modeling limitations and next evaluation direction
+## Limitations
 
-The current production future profile captures recurring zone/day/hour patterns but does not currently model weather, special events, holidays as a dedicated feature, traffic conditions or unexpected disruptions.
-
-A practical next modeling iteration is to compare the existing profile baseline with additional models using only forecast-safe calendar and historical aggregate features. Candidate features include hour/day/month cyclical encodings, weekend/holiday indicators and zone-level historical demand profiles. This allows fair comparison without using unknown future observed lags.
+The future model intentionally stays practical and reproducible. It does not currently depend on weather, live traffic, special-event feeds or unknown future observations. Those can be evaluated later only if they provide enough value to justify additional data dependencies and operational complexity.
 
 For upstream construction see [Data pipeline](data_pipeline.md), and for production configuration see [Deployment](deployment.md).
