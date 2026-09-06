@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.dim_date (
     weekday_number SMALLINT NOT NULL,
     weekday VARCHAR NOT NULL,
     is_weekend BOOLEAN NOT NULL,
-
     CONSTRAINT chk_month CHECK (month BETWEEN 1 AND 12),
     CONSTRAINT chk_weekday_number CHECK (weekday_number BETWEEN 1 AND 7)
 );
@@ -42,7 +41,6 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.fact_demand (
     pickup_date DATE NOT NULL,
     hour SMALLINT NOT NULL,
     demand INTEGER NOT NULL,
-
     CONSTRAINT pk_fact_demand PRIMARY KEY (location_id, pickup_date, hour),
     CONSTRAINT fk_fact_demand_zone FOREIGN KEY (location_id)
         REFERENCES taxi_analytics.dim_zone (location_id),
@@ -68,7 +66,6 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.fact_trips (
     congestion_surcharge NUMERIC NOT NULL,
     airport_fee NUMERIC NOT NULL,
     cbd_congestion_fee NUMERIC NOT NULL,
-
     CONSTRAINT pk_fact_trips PRIMARY KEY (
         location_id, pickup_date, hour, payment_type
     ),
@@ -90,7 +87,6 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.pipeline_runs (
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     error_message TEXT,
-
     CONSTRAINT chk_pipeline_status
         CHECK (status IN ('RUNNING', 'SUCCESS', 'FAILED'))
 );
@@ -110,9 +106,7 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.historical_feature_importance (
     importance DOUBLE PRECISION NOT NULL,
     trained_through TIMESTAMP NOT NULL,
     generated_at TIMESTAMPTZ NOT NULL,
-
-    CONSTRAINT chk_historical_feature_importance_nonnegative
-        CHECK (importance >= 0)
+    CONSTRAINT chk_historical_feature_importance_nonnegative CHECK (importance >= 0)
 );
 
 
@@ -123,36 +117,29 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.historical_model_prediction (
     predicted_demand DOUBLE PRECISION NOT NULL,
     trained_through TIMESTAMP NOT NULL,
     generated_at TIMESTAMPTZ NOT NULL,
-
-    CONSTRAINT pk_historical_model_prediction PRIMARY KEY (
-        location_id, pickup_hour
-    ),
+    CONSTRAINT pk_historical_model_prediction PRIMARY KEY (location_id, pickup_hour),
     CONSTRAINT fk_historical_model_prediction_zone FOREIGN KEY (location_id)
         REFERENCES taxi_analytics.dim_zone (location_id),
-    CONSTRAINT chk_historical_prediction_actual_nonnegative
-        CHECK (actual_demand >= 0),
-    CONSTRAINT chk_historical_prediction_predicted_nonnegative
-        CHECK (predicted_demand >= 0)
+    CONSTRAINT chk_historical_prediction_actual_nonnegative CHECK (actual_demand >= 0),
+    CONSTRAINT chk_historical_prediction_predicted_nonnegative CHECK (predicted_demand >= 0)
 );
 
 
 CREATE TABLE IF NOT EXISTS taxi_analytics.future_demand_profile (
     location_id INTEGER NOT NULL,
+    month SMALLINT NOT NULL,
     day_of_week SMALLINT NOT NULL,
     hour SMALLINT NOT NULL,
     predicted_demand DOUBLE PRECISION NOT NULL,
-
     CONSTRAINT pk_future_demand_profile PRIMARY KEY (
-        location_id, day_of_week, hour
+        location_id, month, day_of_week, hour
     ),
     CONSTRAINT fk_future_demand_profile_zone FOREIGN KEY (location_id)
         REFERENCES taxi_analytics.dim_zone (location_id),
-    CONSTRAINT chk_future_profile_weekday
-        CHECK (day_of_week BETWEEN 1 AND 7),
-    CONSTRAINT chk_future_profile_hour
-        CHECK (hour BETWEEN 0 AND 23),
-    CONSTRAINT chk_future_profile_demand
-        CHECK (predicted_demand >= 0)
+    CONSTRAINT chk_future_profile_month CHECK (month BETWEEN 1 AND 12),
+    CONSTRAINT chk_future_profile_weekday CHECK (day_of_week BETWEEN 1 AND 7),
+    CONSTRAINT chk_future_profile_hour CHECK (hour BETWEEN 0 AND 23),
+    CONSTRAINT chk_future_profile_demand CHECK (predicted_demand >= 0)
 );
 
 
@@ -161,9 +148,7 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.future_model_metric (
     mae DOUBLE PRECISION NOT NULL,
     rmse DOUBLE PRECISION NOT NULL,
     backtest_months INTEGER NOT NULL,
-
-    CONSTRAINT chk_future_metric_months
-        CHECK (backtest_months > 0)
+    CONSTRAINT chk_future_metric_months CHECK (backtest_months > 0)
 );
 
 
@@ -174,7 +159,6 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.future_forecast_metadata (
     generated_at TIMESTAMPTZ NOT NULL,
     profile_dimensions JSONB NOT NULL,
     profile_rows INTEGER NOT NULL,
-
     CONSTRAINT chk_future_metadata_singleton CHECK (id = 1),
     CONSTRAINT chk_future_metadata_rows CHECK (profile_rows >= 0)
 );
