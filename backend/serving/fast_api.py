@@ -124,9 +124,7 @@ def get_predictions(
             detail="start_date must be before or equal to end_date",
         )
     result = db_get_historical_predictions(
-        location_id,
-        start_date=start_date,
-        end_date=end_date,
+        location_id, start_date=start_date, end_date=end_date
     )
     if not result:
         raise HTTPException(
@@ -166,10 +164,7 @@ def predict_future_demand(request: FuturePredictionRequest):
     day_of_week = ((forecast_datetime.weekday() + 1) % 7) + 1
     hour = forecast_datetime.hour
     profile = db_get_future_prediction_profile(
-        request.location_id,
-        month,
-        day_of_week,
-        hour,
+        request.location_id, month, day_of_week, hour
     )
 
     if not profile["profile_rows"]:
@@ -214,28 +209,85 @@ def get_demand_by_weekday():
 
 
 @app.get("/eda/demand-over-time", response_model=list[DemandOverTimeResponse])
-def get_demand_over_time():
-    return db_get_demand_over_time()
+def get_demand_over_time(
+    start_date: date | None = None,
+    end_date: date | None = None,
+):
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(
+            status_code=400,
+            detail="start_date must be before or equal to end_date",
+        )
+    result = db_get_demand_over_time()
+    if start_date is not None:
+        result = [row for row in result if row["date"] >= start_date]
+    if end_date is not None:
+        result = [row for row in result if row["date"] <= end_date]
+    return [
+        {"pickup_hour": row["date"], "total_demand": row["total_demand"]}
+        for row in result
+    ]
 
 
 @app.get("/eda/top-zones", response_model=list[TopZoneResponse])
 def get_top_zones(limit: int = 10):
+    if limit < 1 or limit > 265:
+        raise HTTPException(
+            status_code=400,
+            detail="limit must be between 1 and 265",
+        )
     return db_get_top_zones(limit)
 
 
-@app.get("/eda/zone/{location_id}/demand-by-hour", response_model=list[ZoneDemandByHourResponse])
-def get_zone_demand_by_hour(location_id: int):
-    return db_get_zone_demand_by_hour(location_id)
+@app.get(
+    "/eda/zones/{location_id}/demand-by-hour",
+    response_model=list[ZoneDemandByHourResponse],
+)
+def get_zone_demand_by_hour(
+    location_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+):
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
+    result = db_get_zone_demand_by_hour(location_id, start_date, end_date)
+    if not result:
+        raise HTTPException(status_code=404, detail="No demand data found for the selected zone/date range")
+    return result
 
 
-@app.get("/eda/zone/{location_id}/demand-by-weekday", response_model=list[ZoneDemandByWeekdayResponse])
-def get_zone_demand_by_weekday(location_id: int):
-    return db_get_zone_demand_by_weekday(location_id)
+@app.get(
+    "/eda/zones/{location_id}/demand-by-weekday",
+    response_model=list[ZoneDemandByWeekdayResponse],
+)
+def get_zone_demand_by_weekday(
+    location_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+):
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
+    result = db_get_zone_demand_by_weekday(location_id, start_date, end_date)
+    if not result:
+        raise HTTPException(status_code=404, detail="No demand data found for the selected zone/date range")
+    return result
 
 
-@app.get("/eda/zone/{location_id}/demand-over-time", response_model=list[ZoneDemandOverTimeResponse])
-def get_zone_demand_over_time(location_id: int):
-    return db_get_zone_demand_over_time(location_id)
+@app.get(
+    "/eda/zones/{location_id}/demand-over-time",
+    response_model=list[ZoneDemandOverTimeResponse],
+)
+def get_zone_demand_over_time(
+    location_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+):
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
+    result = db_get_zone_demand_over_time(location_id, start_date, end_date)
+    if not result:
+        raise HTTPException(status_code=404, detail="No demand data found for the selected zone/date range")
+    return result
 
 
 @app.get("/business/summary", response_model=BusinessSummaryResponse)
@@ -244,25 +296,25 @@ def business_summary():
 
 
 @app.get("/business/revenue-over-time", response_model=list[RevenueOverTimeResponse])
-def business_revenue_over_time():
+def revenue_over_time():
     return get_revenue_over_time()
 
 
 @app.get("/business/revenue-by-zone", response_model=list[RevenueByZoneResponse])
-def business_revenue_by_zone(limit: int = 10):
-    return get_revenue_by_zone(limit)
+def revenue_by_zone(limit: int = 10):
+    return get_revenue_by_zone(limit=limit)
 
 
 @app.get("/business/payment-breakdown", response_model=list[PaymentBreakdownResponse])
-def business_payment_breakdown():
+def payment_breakdown():
     return get_payment_breakdown()
 
 
 @app.get("/business/tip-analysis", response_model=TipAnalysisResponse)
-def business_tip_analysis():
+def tip_analysis():
     return get_tip_analysis()
 
 
 @app.get("/business/tip-analysis-by-zone", response_model=list[TipAnalysisByZoneResponse])
-def business_tip_analysis_by_zone(limit: int = 10):
-    return get_tip_analysis_by_zone(limit)
+def tip_analysis_by_zone(limit: int = 10):
+    return get_tip_analysis_by_zone(limit=limit)
