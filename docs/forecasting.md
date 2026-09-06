@@ -48,7 +48,16 @@ The latest four available calendar months are used as temporal holdouts. Every c
 
 MAE is the primary production-selection metric because it is directly interpretable as average hourly demand error; RMSE is the tie-breaker. The winning model is selected automatically after every future-model retraining. The pipeline writes both per-month results and an aggregate model summary.
 
-This means the project no longer hard-codes `zone_dow_hour_mean` as the production model. If the simple baseline remains best, it stays in production. If Linear Regression, Random Forest or GBT beats it on the temporal backtest, that model is published instead.
+### Validated May 2026 snapshot
+
+| Model | MAE | RMSE | Holdout months |
+|---|---:|---:|---:|
+| **`zone_dow_hour_mean`** | **6.4030** | **16.0399** | 4 |
+| `linear_regression` | 7.0330 | 16.4268 | 4 |
+| `random_forest` | 7.1507 | 18.9252 | 4 |
+| `gradient_boosted_trees` | 7.2954 | 19.3715 | 4 |
+
+The selected production model is `zone_dow_hour_mean`. This is an empirical model-selection result rather than a hard-coded serving decision: if Linear Regression, Random Forest or GBT wins after a later retraining, that candidate becomes the production scorer instead.
 
 ## Production scoring
 
@@ -62,9 +71,11 @@ Historical aggregate features are calculated from all observations available thr
 
 Predictions are clipped at zero because taxi-trip demand cannot be negative.
 
+The validated May 2026 publication contains **499,248 profile rows** and is trained through **2026-05-31 23:00:00**. The row count, 12-month coverage, model metrics and metadata were verified in both local PostgreSQL and Supabase.
+
 ## Future prediction serving
 
-The selected forecast snapshot is published transactionally to local PostgreSQL and, when configured, Supabase. FastAPI exposes `GET /future-model-metrics` and `POST /predict`.
+The selected forecast snapshot is published to local PostgreSQL and, when configured, Supabase. FastAPI exposes `GET /future-model-metrics` and `POST /predict`.
 
 `POST /predict` converts the requested datetime to New York local time when needed and looks up:
 
@@ -78,7 +89,13 @@ zone + hour fallback
 zone overall fallback
 ```
 
-The response's `forecast_method` reports the selected production model for an exact profile match. A requested datetime at or before `trained_through` returns HTTP 400.
+For an exact profile match, `forecast_method` reports the selected production model. For a fallback, it reports the fallback level. A requested datetime at or before `trained_through` returns HTTP 400.
+
+The validated production path has been exercised end-to-end through Spark training, automatic model selection, local/Supabase publication, Render FastAPI and `POST /predict`.
+
+## Streamlit presentation
+
+The Forecast page reads all current future-model metrics from FastAPI, sorts them by the same MAE/RMSE selection rule and displays all four candidates. It does not assume that the current baseline will remain the production winner after later retraining.
 
 ## Serving storage
 
@@ -94,7 +111,7 @@ Future serving tables:
 - `taxi_analytics.future_model_metric`
 - `taxi_analytics.future_forecast_metadata`
 
-`future_demand_profile` is month-aware. Existing installations are migrated automatically by the repository before the next snapshot replacement.
+`future_demand_profile` is month-aware. Existing installations are migrated automatically by the repository before snapshot replacement.
 
 Both historical and future serving are database-backed. There is no manual Git deployment step for monthly model-serving snapshots after retraining.
 
@@ -121,5 +138,7 @@ Local PostgreSQL + Supabase
 ## Limitations
 
 The future model intentionally stays practical and reproducible. It does not currently depend on weather, live traffic, special-event feeds or unknown future observations. Those can be evaluated later only if they provide enough value to justify additional data dependencies and operational complexity.
+
+The current month-aware serving profile is intentionally model-independent and therefore relatively large. Supabase publication performance can be optimized later without changing the model-selection or serving contract.
 
 For upstream construction see [Data pipeline](data_pipeline.md), and for production configuration see [Deployment](deployment.md).
