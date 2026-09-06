@@ -3,260 +3,196 @@ from pathlib import Path
 import pandas as pd
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import RegressionEvaluator
-from pyspark.ml.feature import VectorAssembler
-from pyspark.ml.regression import RandomForestRegressor
+from pyspark.ml.feature import OneHotEncoder, StringIndexer, VectorAssembler
+from pyspark.ml.regression import (
+    GBTRegressor,
+    LinearRegression,
+    RandomForestRegressor,
+)
 from pyspark.sql import functions as F
 
-from backend.src.features.build_future_features import (
-    FUTURE_FEATURE_COLUMNS,
-    add_historical_profile_features,
-)
+from backend.src.features.build_future_features import FUTURE_FEATURE_COLUMNS, add_historical_profile_features
 from backend.src.ingestion.spark_session import create_spark_session
 
 
+MODEL_NAMES = [
+    "zone_dow_hour_mean",
+    "linear_regression",
+    "random_forest",
+    "gradient_boosted_trees",
+]
+
+
+def _build_pipeline(regressor):
+    location_indexer = StringIndexer(
+        inputCol="LocationID",
+        outputCol="location_index",
+        handleInvalid="keep",
+    )
+    location_encoder = OneHotEncoder(
+        inputCol="location_index",
+        outputCol="location_ohe",
+        handleInvalid="keep",
+    )
+    assembler = VectorAssembler(
+        inputCols=FUTURE_FEATURE_COLUMNS + ["location_ohe"],
+        outputCol="features",
+    )
+    return Pipeline(stages=[location_indexer, location_encoder, assembler, regressor])
+
+
+def _candidate_pipelines():
+    return {
+        "linear_regression": _build_pipeline(
+            LinearRegression(
+                featuresCol="features",
+                labelCol="demand",
+                predictionCol="prediction",
+                regParam=0.1,
+                elasticNetParam=0.0,
+                maxIter=50,
+            )
+        ),
+        "random_forest": _build_pipeline(
+            RandomForestRegressor(
+                featuresCol="features",
+                labelCol="demand",
+                predictionCol="prediction",
+                numTrees=100,
+                maxDepth=10,
+                seed=42,
+            )
+        ),
+        "gradient_boosted_trees": _build_pipeline(
+            GBTRegressor(
+                featuresCol="features",
+                labelCol="demand",
+                predictionCol="prediction",
+                maxIter=50,
+                maxDepth=6,
+                stepSize=0.1,
+                seed=42,
+            )
+        ),
+    }
+
+
 def train_future_model():
-    spark = create_spark_session()
-
+    spark = create_spark_session("NYC Taxi Future Model Selection")
     project_root = Path(__file__).resolve().parents[3]
-    hourly_path = (
-        project_root
-        / "data"
-        / "processed"
-        / "hourly_demand"
-    )
+    hourly_path = project_root / "data" / "processed" / "hourly_demand"
 
-    hourly_demand = spark.read.parquet(
-        str(hourly_path)
-    )
+    hourly_demand = spark.read.parquet(str(hourly_path))
+    future_data = add_historical_profile_features(hourly_demand)
 
-    future_data = add_historical_profile_features(
-        hourly_demand
-    )
-
-    latest_timestamp = (
-        future_data
-        .agg(
-            F.max("pickup_hour").alias("latest")
-        )
-        .first()["latest"]
-    )
-
+    latest_timestamp = future_data.agg(F.max("pickup_hour").alias("latest")).first()["latest"]
     if latest_timestamp is None:
-        raise RuntimeError(
-            "No hourly demand data available."
-        )
+        raise RuntimeError("No hourly demand data available.")
 
-    model_data = future_data.dropna(
-        subset=FUTURE_FEATURE_COLUMNS
-    ).cache()
-
+    model_data = future_data.dropna(subset=FUTURE_FEATURE_COLUMNS).cache()
     test_months = [
         row["calendar_month"]
         for row in (
-            model_data
-            .select("calendar_month")
+            model_data.select("calendar_month")
             .distinct()
-            .orderBy(
-                F.col("calendar_month").desc()
-            )
+            .orderBy(F.col("calendar_month").desc())
             .limit(4)
             .collect()
         )
     ]
     test_months.sort()
-
     if not test_months:
-        raise RuntimeError(
-            "No test months available for rolling backtest."
-        )
+        raise RuntimeError("No test months available for rolling backtest.")
 
     mae_evaluator = RegressionEvaluator(
-        labelCol="demand",
-        predictionCol="prediction",
-        metricName="mae",
+        labelCol="demand", predictionCol="prediction", metricName="mae"
     )
-
     rmse_evaluator = RegressionEvaluator(
-        labelCol="demand",
-        predictionCol="prediction",
-        metricName="rmse",
+        labelCol="demand", predictionCol="prediction", metricName="rmse"
     )
 
-    assembler = VectorAssembler(
-        inputCols=FUTURE_FEATURE_COLUMNS,
-        outputCol="features",
-    )
-
-    rf = RandomForestRegressor(
-        featuresCol="features",
-        labelCol="demand",
-        numTrees=100,
-        maxDepth=10,
-        seed=42,
-    )
-
-    pipeline = Pipeline(
-        stages=[
-            assembler,
-            rf,
-        ]
-    )
-
-    print(
-        f"Latest data timestamp: {latest_timestamp}"
-    )
-    print(
-        "Rolling backtest months: "
-        + ", ".join(
-            str(month)
-            for month in test_months
-        )
-    )
+    print(f"Latest data timestamp: {latest_timestamp}")
+    print("Rolling backtest months: " + ", ".join(str(month) for month in test_months))
 
     results = []
+    pipelines = _candidate_pipelines()
 
     for test_month in test_months:
-        train_data = model_data.filter(
-            F.col("calendar_month")
-            < F.lit(test_month)
-        )
-
-        test_data = model_data.filter(
-            F.col("calendar_month")
-            == F.lit(test_month)
-        )
-
+        train_data = model_data.filter(F.col("calendar_month") < F.lit(test_month)).cache()
+        test_data = model_data.filter(F.col("calendar_month") == F.lit(test_month)).cache()
         train_count = train_data.count()
         test_count = test_data.count()
-
         if train_count == 0 or test_count == 0:
-            raise RuntimeError(
-                f"Empty rolling split for {test_month}."
+            raise RuntimeError(f"Empty rolling split for {test_month}.")
+
+        row = {
+            "test_month": str(test_month),
+            "train_rows": train_count,
+            "test_rows": test_count,
+        }
+
+        baseline_predictions = test_data.withColumn(
+            "prediction", F.greatest(F.col("zone_dow_hour_mean"), F.lit(0.0))
+        )
+        row["zone_dow_hour_mean_mae"] = mae_evaluator.evaluate(baseline_predictions)
+        row["zone_dow_hour_mean_rmse"] = rmse_evaluator.evaluate(baseline_predictions)
+
+        for model_name, pipeline in pipelines.items():
+            fitted = pipeline.fit(train_data)
+            predictions = fitted.transform(test_data).withColumn(
+                "prediction", F.greatest(F.col("prediction"), F.lit(0.0))
+            )
+            row[f"{model_name}_mae"] = mae_evaluator.evaluate(predictions)
+            row[f"{model_name}_rmse"] = rmse_evaluator.evaluate(predictions)
+
+        results.append(row)
+        print(f"\nTest month: {test_month}")
+        print(f"Training rows: {train_count:,}")
+        print(f"Test rows: {test_count:,}")
+        for model_name in MODEL_NAMES:
+            print(
+                f"{model_name}: MAE={row[f'{model_name}_mae']:.2f}, "
+                f"RMSE={row[f'{model_name}_rmse']:.2f}"
             )
 
-        baseline_predictions = (
-            test_data.withColumn(
-                "prediction",
-                F.col("zone_dow_hour_mean"),
-            )
-        )
+        train_data.unpersist()
+        test_data.unpersist()
 
-        baseline_mae = mae_evaluator.evaluate(
-            baseline_predictions
-        )
-        baseline_rmse = rmse_evaluator.evaluate(
-            baseline_predictions
-        )
-
-        model = pipeline.fit(train_data)
-        predictions = model.transform(test_data)
-
-        rf_mae = mae_evaluator.evaluate(predictions)
-        rf_rmse = rmse_evaluator.evaluate(predictions)
-
-        results.append(
+    summary = []
+    for model_name in MODEL_NAMES:
+        summary.append(
             {
-                "test_month": str(test_month),
-                "train_rows": train_count,
-                "test_rows": test_count,
-                "baseline_mae": baseline_mae,
-                "baseline_rmse": baseline_rmse,
-                "rf_mae": rf_mae,
-                "rf_rmse": rf_rmse,
+                "model": model_name,
+                "mae": sum(row[f"{model_name}_mae"] for row in results) / len(results),
+                "rmse": sum(row[f"{model_name}_rmse"] for row in results) / len(results),
+                "backtest_months": len(results),
             }
         )
 
-        print(
-            f"\nTest month: {test_month}"
-        )
-        print(
-            f"Training rows: {train_count:,}"
-        )
-        print(
-            f"Test rows: {test_count:,}"
-        )
-        print(
-            f"Baseline MAE:  {baseline_mae:.2f}"
-        )
-        print(
-            f"Baseline RMSE: {baseline_rmse:.2f}"
-        )
-        print(
-            f"Random Forest MAE:  {rf_mae:.2f}"
-        )
-        print(
-            f"Random Forest RMSE: {rf_rmse:.2f}"
-        )
-
-    average_baseline_mae = sum(
-        result["baseline_mae"]
-        for result in results
-    ) / len(results)
-
-    average_baseline_rmse = sum(
-        result["baseline_rmse"]
-        for result in results
-    ) / len(results)
-
-    average_rf_mae = sum(
-        result["rf_mae"]
-        for result in results
-    ) / len(results)
-
-    average_rf_rmse = sum(
-        result["rf_rmse"]
-        for result in results
-    ) / len(results)
+    # MAE is the primary selection metric because it remains directly
+    # interpretable as average hourly trip-demand error. RMSE breaks ties.
+    winner = min(summary, key=lambda item: (item["mae"], item["rmse"]))
+    production_model = winner["model"]
 
     print("\nRolling backtest summary")
-    print(
-        f"Average baseline MAE:  "
-        f"{average_baseline_mae:.2f}"
-    )
-    print(
-        f"Average baseline RMSE: "
-        f"{average_baseline_rmse:.2f}"
-    )
-    print(
-        f"Average RF MAE:        "
-        f"{average_rf_mae:.2f}"
-    )
-    print(
-        f"Average RF RMSE:       "
-        f"{average_rf_rmse:.2f}"
-    )
+    for item in summary:
+        print(f"{item['model']}: MAE={item['mae']:.2f}, RMSE={item['rmse']:.2f}")
+    print(f"Selected production model: {production_model}")
 
-    metrics_path = (
-        project_root
-        / "data"
-        / "processed"
-        / "future_model_backtest.csv"
-    )
-
-    metrics_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    pd.DataFrame(results).to_csv(
-        metrics_path,
-        index=False,
-    )
-
-    print(
-        f"Future-model backtest saved to: "
-        f"{metrics_path}"
-    )
+    metrics_path = project_root / "data" / "processed" / "future_model_backtest.csv"
+    summary_path = project_root / "data" / "processed" / "future_model_summary.csv"
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(results).to_csv(metrics_path, index=False)
+    pd.DataFrame(summary).to_csv(summary_path, index=False)
 
     model_data.unpersist()
 
     return {
         "spark": spark,
         "results": results,
-        "average_baseline_mae": average_baseline_mae,
-        "average_baseline_rmse": average_baseline_rmse,
-        "average_rf_mae": average_rf_mae,
-        "average_rf_rmse": average_rf_rmse,
+        "summary": summary,
+        "production_model": production_model,
+        "latest_timestamp": latest_timestamp,
     }
 
 
