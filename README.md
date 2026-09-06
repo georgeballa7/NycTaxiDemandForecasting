@@ -123,9 +123,9 @@ erDiagram
 - Spark Random Forest for historical demand-model validation
 - Database-backed historical metrics, feature importance and predictions
 - Leakage-safe rolling future-month backtesting
-- Automatic future production-model selection
+- Automatic future production-model selection across four candidates
 - Forecast-safe calendar and historical aggregate features
-- Database-backed long-horizon future demand inference
+- Month-aware database-backed long-horizon future demand inference
 - Dynamic data-range discovery from PostgreSQL
 - Revenue, payment, tip, distance, surcharge and zone-level business analytics
 - REST API serving with FastAPI and SQLAlchemy
@@ -162,16 +162,20 @@ Arbitrary future dates cannot use unknown future observed lag values. The future
 
 During temporal backtesting, historical aggregate features are computed strictly from months before each holdout month to prevent leakage.
 
-Four practical candidates are compared on the latest four available monthly holdouts:
+Four candidates are compared on the latest four available monthly holdouts. The current validated snapshot is:
 
-1. `zone_dow_hour_mean` baseline
-2. Linear Regression
-3. Random Forest
-4. Gradient-Boosted Trees
+| Model | MAE | RMSE |
+|---|---:|---:|
+| **`zone_dow_hour_mean`** | **6.40** | **16.04** |
+| Linear Regression | 7.03 | 16.43 |
+| Random Forest | 7.15 | 18.93 |
+| Gradient-Boosted Trees | 7.30 | 19.37 |
 
-The production model is **selected automatically by lowest average MAE, with RMSE as tie-breaker**. The baseline is retained when complexity does not improve validation performance; an ML model is promoted only when it performs better.
+The production model is **selected automatically by lowest average MAE, with RMSE as tie-breaker**. For the validated May 2026 snapshot, `zone_dow_hour_mean` remains the production model because none of the more complex candidates improved the rolling holdout performance.
 
-After selection, the winner generates a month-aware future scoring profile across `LocationID × month × day_of_week × hour`. Future metrics, metadata and predictions are published directly to PostgreSQL/Supabase and served through `POST /predict`.
+After selection, the winner generates a month-aware future scoring profile across `LocationID × month × day_of_week × hour`. The validated snapshot contains **499,248 profile rows**, is trained through **2026-05-31 23:00:00**, and has been validated in both local PostgreSQL and Supabase. Future metrics, metadata and predictions are served through FastAPI `POST /predict`.
+
+The Streamlit Forecast page reads the current candidate metrics from the API and determines the displayed production winner dynamically, so the UI remains valid if a different model wins after a later retraining.
 
 ## 💼 Business Analytics
 
