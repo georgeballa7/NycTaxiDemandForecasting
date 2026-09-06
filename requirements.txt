@@ -14,3 +14,7 @@ reportlab
 
 streamlit
 plotly
+
+# Testing
+pytest
+httpx

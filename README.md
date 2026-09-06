@@ -36,6 +36,7 @@ The currently validated data range is **January 2025 through May 2026**.
 - leakage-safe future forecasting with automatic model selection
 - FastAPI-backed analytics and prediction serving
 - interactive Streamlit reporting
+- targeted automated tests with pytest and GitHub Actions CI
 - Slack notifications for pipeline failures and successful retraining
 
 ## Forecasting
@@ -62,7 +63,7 @@ The simpler baseline currently wins the future forecasting task and is therefore
 
 ## Tech Stack
 
-**Python · Pandas · PySpark · PostgreSQL · Supabase · Apache Airflow · Docker · Spark ML · FastAPI · SQLAlchemy · Streamlit · Plotly · Render · GitHub**
+**Python · Pandas · PySpark · PostgreSQL · Supabase · Apache Airflow · Docker · Spark ML · FastAPI · SQLAlchemy · Streamlit · Plotly · pytest · GitHub Actions · Render · GitHub**
 
 ## Code Guide
 
@@ -73,6 +74,7 @@ backend/workflows/  reusable end-to-end workflows
 backend/serving/    FastAPI serving layer
 backend/sql/        database schema
 frontend/           Streamlit application
+tests/              focused automated tests
 docs/               detailed technical documentation
 ```
 
@@ -82,6 +84,14 @@ The main workflow entry points are:
 python -m backend.workflows.run_pipeline
 python -m backend.workflows.ml_pipeline
 ```
+
+Run the automated test suite with:
+
+```bash
+pytest -q
+```
+
+GitHub Actions runs the same tests automatically for pushes and pull requests targeting `main`.
 
 For normal operation, the scheduled Airflow DAG handles incremental ingestion and triggers model retraining only when new data has been processed.
 
