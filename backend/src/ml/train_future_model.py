@@ -23,6 +23,13 @@ MODEL_NAMES = [
 ]
 
 
+def select_production_model(summary):
+    """Select the lowest-MAE model, using RMSE as the tie-breaker."""
+    if not summary:
+        raise ValueError("Model summary must not be empty.")
+    return min(summary, key=lambda item: (item["mae"], item["rmse"]))["model"]
+
+
 def _build_pipeline(regressor):
     location_indexer = StringIndexer(
         inputCol="LocationID",
@@ -169,10 +176,7 @@ def train_future_model():
             }
         )
 
-    # MAE is the primary selection metric because it remains directly
-    # interpretable as average hourly trip-demand error. RMSE breaks ties.
-    winner = min(summary, key=lambda item: (item["mae"], item["rmse"]))
-    production_model = winner["model"]
+    production_model = select_production_model(summary)
 
     print("\nRolling backtest summary")
     for item in summary:
