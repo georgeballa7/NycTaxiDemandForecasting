@@ -21,7 +21,7 @@ flowchart LR
     C --> D[("Processed Parquet")]
     C --> E[("PostgreSQL / Supabase<br/>taxi_analytics")]
     D --> F["Historical ML<br/>Spark Random Forest"]
-    D --> G["Future Forecast<br/>Rolling Backtest"]
+    D --> G["Future Forecast<br/>Temporal Model Selection"]
     F --> HP["Historical Model Publisher"]
     G --> FP["Future Forecast Publisher"]
     HP --> E
@@ -31,7 +31,7 @@ flowchart LR
     K --> L["Browser"]
 ```
 
-The project deliberately separates **offline processing and ML** from **runtime serving**. PySpark handles large-scale transformations and training offline. The deployed application never starts Spark for a user request.
+Offline PySpark handles large-scale transformations and model training. The deployed application never starts Spark for a user request.
 
 Runtime path:
 
@@ -41,7 +41,7 @@ Browser → Streamlit → FastAPI → Supabase PostgreSQL
 
 ## Incremental Data Pipeline
 
-The main Airflow DAG runs daily and checks only the next expected TLC month.
+The Airflow DAG runs daily and checks only the next expected TLC month.
 
 ```text
 Last successful month
@@ -59,7 +59,7 @@ Successful no-op   Process month
        Publish historical + future snapshots
 ```
 
-Key operational behavior:
+Operational behavior:
 
 - processes at most one newly available month per scheduled run
 - does not retrain when no new TLC month is available
@@ -67,9 +67,9 @@ Key operational behavior:
 - updates local PostgreSQL and production Supabase
 - reruns the shared ML pipeline after successful ingestion
 - publishes historical evaluation and future forecast snapshots automatically
-- sends Slack notifications after successful retraining/publishing and on pipeline/task failures
-- keeps normal daily no-op runs silent when no new TLC month is available
-- supports a separate manual backfill workflow for controlled catch-up processing
+- sends Slack notifications after successful retraining/publishing and on failures
+- keeps normal daily no-op runs silent
+- supports a separate manual backfill workflow
 
 ## Analytical Data Model
 
@@ -97,6 +97,8 @@ Future forecast-serving tables:
 - `future_model_metric`
 - `future_forecast_metadata`
 
+The future profile is keyed by **zone × month × weekday × hour**, allowing seasonality to be served without loading a Spark model at request time.
+
 ```mermaid
 erDiagram
     DIM_ZONE ||--o{ FACT_DEMAND : location
@@ -110,8 +112,6 @@ erDiagram
     DIM_ZONE ||--o{ FUTURE_DEMAND_PROFILE : location
 ```
 
-The database is an analytical/serving model rather than a raw trip store. The full schema is documented in `docs/data_model.md`.
-
 ## Key Features
 
 - Incremental NYC TLC monthly ingestion with Apache Airflow
@@ -119,10 +119,12 @@ The database is an analytical/serving model rather than a raw trip store. The fu
 - Complete zone-hour demand panel including zero-demand observations
 - PostgreSQL/Supabase dimensional analytical model
 - Pipeline-state tracking for incremental processing
-- Slack operational alerts for retraining success and pipeline failures
+- Slack operational alerts
 - Spark Random Forest for historical demand-model validation
 - Database-backed historical metrics, feature importance and predictions
-- Rolling future-month backtesting for production model selection
+- Leakage-safe rolling future-month backtesting
+- Automatic future production-model selection
+- Forecast-safe calendar and historical aggregate features
 - Database-backed long-horizon future demand inference
 - Dynamic data-range discovery from PostgreSQL
 - Revenue, payment, tip, distance, surcharge and zone-level business analytics
@@ -132,11 +134,11 @@ The database is an analytical/serving model rather than a raw trip store. The fu
 
 ## 🔮 Demand Forecasting
 
-The project intentionally separates **historical model evaluation** from **future inference**.
+The project intentionally separates **historical model evaluation** from **true future inference**.
 
 ### Historical Random Forest
 
-The Spark Random Forest uses temporal, cyclical, lag and rolling-demand features, including 1-hour, 24-hour and 168-hour lags.
+The historical Spark Random Forest uses temporal, cyclical, lag and rolling-demand features, including 1-hour, 24-hour and 168-hour lags.
 
 Latest validated historical retraining using data through May 2026:
 
@@ -145,39 +147,39 @@ Latest validated historical retraining using data through May 2026:
 | Persistence baseline | 6.51 | 21.84 |
 | Random Forest | **4.63** | **15.97** |
 
-Historical predictions, metrics and feature importance are published transactionally to local PostgreSQL and Supabase after retraining and served by FastAPI from the database.
+Historical predictions, metrics and feature importance are published transactionally to local PostgreSQL and Supabase and served from the database.
 
-### Production Future Forecast
+### Future Forecast Model Selection
 
-Arbitrary future dates cannot rely on unknown future lag values. The project therefore evaluates a separate long-horizon forecasting approach with rolling future-month backtests.
+Arbitrary future dates cannot use unknown future observed lag values. The future pipeline therefore uses only predictors available at forecast time:
 
-Aggregate validation across February–May 2026:
+- hour, weekday, month and weekend indicator
+- cyclical hour/weekday/month encodings
+- historical zone mean demand
+- historical zone-hour mean demand
+- historical zone-weekday-hour mean demand
+- categorical taxi-zone identity
 
-| Model | MAE | RMSE |
-|---|---:|---:|
-| `zone_dow_hour_mean` | **6.4030** | **16.0399** |
-| Random Forest | 7.3245 | 19.7391 |
+During temporal backtesting, historical aggregate features are computed strictly from months before each holdout month to prevent leakage.
 
-The simpler `zone_dow_hour_mean` model outperformed the future Random Forest and is therefore the **production future model**. Future profiles, metrics and metadata are published directly to PostgreSQL/Supabase and served by FastAPI through `POST /predict`.
+Four practical candidates are compared on the latest four available monthly holdouts:
+
+1. `zone_dow_hour_mean` baseline
+2. Linear Regression
+3. Random Forest
+4. Gradient-Boosted Trees
+
+The production model is **selected automatically by lowest average MAE, with RMSE as tie-breaker**. The baseline is retained when complexity does not improve validation performance; an ML model is promoted only when it performs better.
+
+After selection, the winner generates a month-aware future scoring profile across `LocationID × month × day_of_week × hour`. Future metrics, metadata and predictions are published directly to PostgreSQL/Supabase and served through `POST /predict`.
 
 ## 💼 Business Analytics
 
-The business analytics layer complements demand forecasting with commercial and operational measures including trip volume, fare and total revenue, tips, payment methods, trip distance, tolls, congestion-related charges, and borough/taxi-zone performance.
+The business analytics layer complements demand forecasting with trip volume, fare and total revenue, tips, payment methods, trip distance, tolls, congestion-related charges, and borough/taxi-zone performance.
 
 ## Serving Strategy
 
-Runtime serving is now database-backed for:
-
-- demand analytics
-- business analytics
-- dynamic data coverage
-- historical model predictions
-- historical model metrics
-- historical feature importance
-- future forecast profiles
-- future model metrics and metadata
-
-`data/app/zones.parquet` and `data/app/eda/` remain lightweight offline staging/EDA assets; they are not the source of historical model-serving results.
+Runtime serving is database-backed for demand analytics, business analytics, historical model evaluation and future forecasting. `data/app/zones.parquet` and `data/app/eda/` remain lightweight offline staging/EDA assets only.
 
 ## Tech Stack
 
@@ -187,7 +189,7 @@ Runtime serving is now database-backed for:
 | Orchestration | Apache Airflow, Docker |
 | Data Engineering | Parquet, incremental ingestion, feature pipelines |
 | Database | PostgreSQL, Supabase |
-| Machine Learning | Spark ML Random Forest, temporal profile forecasting |
+| Machine Learning | Spark ML Linear Regression, Random Forest, GBT, temporal baselines |
 | Backend | FastAPI, SQLAlchemy |
 | Frontend | Streamlit, Plotly |
 | Monitoring | Slack Incoming Webhooks |
@@ -205,7 +207,7 @@ backend/
 ├── src/
 │   ├── config/            # Backend settings
 │   ├── database/          # Connections, loaders and query repositories
-│   ├── features/          # Historical forecast feature engineering
+│   ├── features/          # Forecast feature engineering
 │   ├── ingestion/         # Spark session, TLC availability and source ingestion
 │   ├── ml/                # Historical/future ML and database publication
 │   ├── persistence/       # Parquet helpers
@@ -228,9 +230,7 @@ Render FastAPI
 Supabase PostgreSQL
 ```
 
-Streamlit communicates only with FastAPI and does not hold database credentials. Render reads analytical data plus historical and future model-serving snapshots from Supabase.
-
-The current demand-data range is obtained dynamically from FastAPI rather than being hard-coded in the frontend, so newly loaded months can automatically become available to DB-backed Streamlit pages.
+Streamlit communicates only with FastAPI and does not hold database credentials. The data range is obtained dynamically from FastAPI, so newly ingested months can automatically become available to DB-backed pages.
 
 ## Documentation
 
@@ -240,4 +240,4 @@ Detailed technical documentation is available under `docs/`: Architecture, Data 
 
 **Launch NYC Taxi Analytics:** https://george-nyc-taxi-analytics.streamlit.app/
 
-> The backend is hosted on Render's free tier. The first request after a period of inactivity may take some time while the service starts.
+> The backend is hosted on Render's free tier. The first request after inactivity may take some time while the service starts.
