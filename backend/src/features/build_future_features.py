@@ -8,9 +8,7 @@ from pyspark.sql import functions as F
 CALENDAR_FEATURE_COLUMNS = [
     "hour",
     "day_of_week",
-    "day_of_month",
     "month",
-    "week_of_year",
     "is_weekend",
     "hour_sin",
     "hour_cos",
@@ -20,219 +18,139 @@ CALENDAR_FEATURE_COLUMNS = [
     "month_cos",
 ]
 
-
 PROFILE_FEATURE_COLUMNS = [
+    "zone_mean_demand",
     "zone_hour_mean",
     "zone_dow_hour_mean",
 ]
 
-
-FUTURE_FEATURE_COLUMNS = (
-    CALENDAR_FEATURE_COLUMNS
-    + PROFILE_FEATURE_COLUMNS
-)
+FUTURE_FEATURE_COLUMNS = CALENDAR_FEATURE_COLUMNS + PROFILE_FEATURE_COLUMNS
 
 
-def add_future_calendar_features(
-    df: DataFrame,
-) -> DataFrame:
-    """
-    Add features that are known for any future timestamp.
-
-    These features do not depend on future observed taxi demand.
-    """
-
+def _add_calendar_columns(df: DataFrame) -> DataFrame:
     return (
         df
         .withColumn(
-            "hour",
-            F.hour("pickup_hour"),
-        )
-        .withColumn(
-            "day_of_week",
-            F.dayofweek("pickup_hour"),
-        )
-        .withColumn(
-            "day_of_month",
-            F.dayofmonth("pickup_hour"),
-        )
-        .withColumn(
-            "month",
-            F.month("pickup_hour"),
-        )
-        .withColumn(
-            "week_of_year",
-            F.weekofyear("pickup_hour"),
-        )
-        .withColumn(
             "is_weekend",
-            F.when(
-                F.col("day_of_week").isin(1, 7),
-                1,
-            ).otherwise(0),
+            F.when(F.col("day_of_week").isin(1, 7), 1).otherwise(0),
         )
         .withColumn(
             "hour_sin",
-            F.sin(
-                2
-                * math.pi
-                * F.col("hour")
-                / 24
-            ),
+            F.sin(2 * math.pi * F.col("hour") / 24),
         )
         .withColumn(
             "hour_cos",
-            F.cos(
-                2
-                * math.pi
-                * F.col("hour")
-                / 24
-            ),
+            F.cos(2 * math.pi * F.col("hour") / 24),
         )
         .withColumn(
             "dow_sin",
-            F.sin(
-                2
-                * math.pi
-                * F.col("day_of_week")
-                / 7
-            ),
+            F.sin(2 * math.pi * F.col("day_of_week") / 7),
         )
         .withColumn(
             "dow_cos",
-            F.cos(
-                2
-                * math.pi
-                * F.col("day_of_week")
-                / 7
-            ),
+            F.cos(2 * math.pi * F.col("day_of_week") / 7),
         )
         .withColumn(
             "month_sin",
-            F.sin(
-                2
-                * math.pi
-                * F.col("month")
-                / 12
-            ),
+            F.sin(2 * math.pi * F.col("month") / 12),
         )
         .withColumn(
             "month_cos",
-            F.cos(
-                2
-                * math.pi
-                * F.col("month")
-                / 12
-            ),
+            F.cos(2 * math.pi * F.col("month") / 12),
         )
     )
 
 
-def add_historical_profile_features(
-    df: DataFrame,
-) -> DataFrame:
-    """
-    Build demand-profile features using only earlier months.
+def add_future_calendar_features(df: DataFrame) -> DataFrame:
+    """Add calendar features that are known for every future timestamp."""
+    return _add_calendar_columns(
+        df
+        .withColumn("hour", F.hour("pickup_hour"))
+        .withColumn("day_of_week", F.dayofweek("pickup_hour"))
+        .withColumn("month", F.month("pickup_hour"))
+    )
 
-    For every target month, profile values are calculated from
-    observations belonging to strictly earlier calendar months.
-    This prevents target leakage and mirrors future inference.
-    """
 
+def add_historical_profile_features(df: DataFrame) -> DataFrame:
+    """
+    Build leakage-safe historical demand profiles for model backtesting.
+
+    Every target month receives aggregate features calculated strictly from
+    earlier calendar months. The features therefore remain available at
+    prediction time and do not use demand observed in the target month.
+    """
     data = (
         add_future_calendar_features(df)
-        .withColumn(
-            "calendar_month",
-            F.trunc(
-                F.col("pickup_hour"),
-                "month",
-            ),
-        )
+        .withColumn("calendar_month", F.trunc(F.col("pickup_hour"), "month"))
     )
 
-    month_zone_hour = (
+    month_zone = (
         data
-        .groupBy(
-            "calendar_month",
-            "LocationID",
-            "hour",
-        )
+        .groupBy("calendar_month", "LocationID")
         .agg(
             F.sum("demand").alias("_sum"),
             F.count("demand").alias("_count"),
         )
     )
-
-    zone_hour_window = (
+    zone_window = (
         Window
-        .partitionBy(
-            "LocationID",
-            "hour",
-        )
+        .partitionBy("LocationID")
         .orderBy("calendar_month")
-        .rowsBetween(
-            Window.unboundedPreceding,
-            -1,
+        .rowsBetween(Window.unboundedPreceding, -1)
+    )
+    month_zone = (
+        month_zone
+        .withColumn(
+            "zone_mean_demand",
+            F.sum("_sum").over(zone_window) / F.sum("_count").over(zone_window),
         )
+        .select("calendar_month", "LocationID", "zone_mean_demand")
     )
 
+    month_zone_hour = (
+        data
+        .groupBy("calendar_month", "LocationID", "hour")
+        .agg(
+            F.sum("demand").alias("_sum"),
+            F.count("demand").alias("_count"),
+        )
+    )
+    zone_hour_window = (
+        Window
+        .partitionBy("LocationID", "hour")
+        .orderBy("calendar_month")
+        .rowsBetween(Window.unboundedPreceding, -1)
+    )
     month_zone_hour = (
         month_zone_hour
         .withColumn(
             "zone_hour_mean",
-            F.sum("_sum").over(
-                zone_hour_window
-            )
-            / F.sum("_count").over(
-                zone_hour_window
-            ),
+            F.sum("_sum").over(zone_hour_window)
+            / F.sum("_count").over(zone_hour_window),
         )
-        .select(
-            "calendar_month",
-            "LocationID",
-            "hour",
-            "zone_hour_mean",
-        )
+        .select("calendar_month", "LocationID", "hour", "zone_hour_mean")
     )
 
     month_zone_dow_hour = (
         data
-        .groupBy(
-            "calendar_month",
-            "LocationID",
-            "day_of_week",
-            "hour",
-        )
+        .groupBy("calendar_month", "LocationID", "day_of_week", "hour")
         .agg(
             F.sum("demand").alias("_sum"),
             F.count("demand").alias("_count"),
         )
     )
-
     zone_dow_hour_window = (
         Window
-        .partitionBy(
-            "LocationID",
-            "day_of_week",
-            "hour",
-        )
+        .partitionBy("LocationID", "day_of_week", "hour")
         .orderBy("calendar_month")
-        .rowsBetween(
-            Window.unboundedPreceding,
-            -1,
-        )
+        .rowsBetween(Window.unboundedPreceding, -1)
     )
-
     month_zone_dow_hour = (
         month_zone_dow_hour
         .withColumn(
             "zone_dow_hour_mean",
-            F.sum("_sum").over(
-                zone_dow_hour_window
-            )
-            / F.sum("_count").over(
-                zone_dow_hour_window
-            ),
+            F.sum("_sum").over(zone_dow_hour_window)
+            / F.sum("_count").over(zone_dow_hour_window),
         )
         .select(
             "calendar_month",
@@ -245,23 +163,65 @@ def add_historical_profile_features(
 
     return (
         data
+        .join(month_zone, ["calendar_month", "LocationID"], "left")
         .join(
             month_zone_hour,
-            [
-                "calendar_month",
-                "LocationID",
-                "hour",
-            ],
+            ["calendar_month", "LocationID", "hour"],
             "left",
         )
         .join(
             month_zone_dow_hour,
-            [
-                "calendar_month",
-                "LocationID",
-                "day_of_week",
-                "hour",
-            ],
+            ["calendar_month", "LocationID", "day_of_week", "hour"],
+            "left",
+        )
+    )
+
+
+def build_future_scoring_grid(df: DataFrame) -> DataFrame:
+    """
+    Create a reusable future scoring grid from all observed history.
+
+    The grid covers every observed zone for every month, weekday and hour.
+    Historical aggregates use all data available through the current training
+    cutoff, which is exactly what will be available for true future inference.
+    """
+    data = add_future_calendar_features(df)
+    spark = df.sparkSession
+
+    zone_mean = (
+        data
+        .groupBy("LocationID")
+        .agg(F.avg("demand").alias("zone_mean_demand"))
+    )
+    zone_hour = (
+        data
+        .groupBy("LocationID", "hour")
+        .agg(F.avg("demand").alias("zone_hour_mean"))
+    )
+    zone_dow_hour = (
+        data
+        .groupBy("LocationID", "day_of_week", "hour")
+        .agg(F.avg("demand").alias("zone_dow_hour_mean"))
+    )
+
+    zones = data.select("LocationID").distinct()
+    months = spark.range(1, 13).select(F.col("id").cast("int").alias("month"))
+    weekdays = spark.range(1, 8).select(
+        F.col("id").cast("int").alias("day_of_week")
+    )
+    hours = spark.range(0, 24).select(F.col("id").cast("int").alias("hour"))
+
+    grid = _add_calendar_columns(
+        zones.crossJoin(months).crossJoin(weekdays).crossJoin(hours)
+    )
+
+    return (
+        grid
+        .join(zone_mean, "LocationID", "left")
+        .join(zone_hour, ["LocationID", "hour"], "left")
+        .join(
+            zone_dow_hour,
+            ["LocationID", "day_of_week", "hour"],
             "left",
         )
     )
