@@ -9,8 +9,8 @@ The current validated data range is **January 2025 through May 2026**.
 The architecture has four main parts:
 
 1. **Data ingestion and processing** with PySpark
-2. **ML training and future-demand profile generation**
-3. **Analytical and serving storage** in PostgreSQL / Supabase plus selected file-based artifacts
+2. **ML training, validation and serving-snapshot publication**
+3. **Analytical and model-serving storage** in PostgreSQL / Supabase
 4. **Runtime serving** with FastAPI on Render and Streamlit Community Cloud
 
 PySpark is intentionally kept out of request-time serving. FastAPI never starts Spark and Streamlit never talks directly to PostgreSQL or Supabase.
@@ -25,11 +25,11 @@ flowchart LR
     SP --> DB[(PostgreSQL / Supabase\ntaxi_analytics)]
     PP --> HML[Historical Random Forest]
     PP --> FML[Future forecast backtesting]
-    HML --> APP[(Historical data/app artifacts)]
-    FML --> PUB[Future forecast publisher]
-    PUB --> DB
+    HML --> HP[Historical model publisher]
+    FML --> FP[Future forecast publisher]
+    HP --> DB
+    FP --> DB
     DB --> API[FastAPI on Render]
-    APP --> API
     API --> ST[Streamlit Community Cloud]
     ST --> USER[Browser]
 ```
@@ -38,9 +38,7 @@ flowchart LR
 
 Airflow runs locally in Docker with a dedicated metadata PostgreSQL database. That Airflow metadata database is separate from both the local NYC Taxi development database and Supabase.
 
-The main scheduled DAG is:
-
-`airflow/dags/nyc_taxi_monthly_ingestion.py`
+The main scheduled DAG is `airflow/dags/nyc_taxi_monthly_ingestion.py`.
 
 Normal operation:
 
@@ -51,17 +49,18 @@ Normal operation:
 - processes at most one newly available month per run
 - succeeds as a no-op when the next TLC month is not yet available
 - retrains ML only after a new month is successfully processed
+- publishes both historical evaluation and future forecast snapshots automatically
 
-The shared ML workflow is implemented in `backend/workflows/ml_pipeline.py` and runs:
+The shared ML workflow in `backend/workflows/ml_pipeline.py` runs:
 
 ```text
 Historical Random Forest training
         ↓
-Historical app artifact preparation
+Historical model publication
         ↓
 Future-model rolling backtest
         ↓
-Future forecast profile publication
+Future forecast publication
         ↓
 Local PostgreSQL + Supabase
 ```
@@ -76,7 +75,7 @@ Local PostgreSQL + Supabase
 | Features | `backend/src/features/` | Historical demand feature engineering |
 | Persistence | `backend/src/persistence/` | Parquet persistence helpers |
 | Database | `backend/src/database/` | SQLAlchemy connection, loaders, serving repositories |
-| ML | `backend/src/ml/` | Historical model, future backtesting, profile publication |
+| ML | `backend/src/ml/` | Historical model, future backtesting and DB publication |
 | Workflows | `backend/workflows/` | Data and ML orchestration |
 | Airflow | `airflow/dags/` | Scheduled and manual orchestration |
 | Serving | `backend/serving/` | FastAPI application and schemas |
@@ -87,14 +86,12 @@ Local PostgreSQL + Supabase
 | Layer | Location/system | Purpose |
 |---|---|---|
 | Raw | `data/raw/` | Monthly TLC trip files and taxi-zone lookup |
-| Processed | `data/processed/` | Features, business data, model outputs, backtest results, persisted historical model |
-| Historical app artifacts | `data/app/` | Historical predictions, metrics, feature importance, zones and EDA extracts |
-| Local PostgreSQL | local development DB | Local analytical and future-forecast publication target |
-| Supabase PostgreSQL | production DB | Production analytical data and future forecast serving data |
+| Processed | `data/processed/` | Features, model outputs, business data and backtest results |
+| App staging | `data/app/` | Lightweight taxi-zone and EDA assets only |
+| Local PostgreSQL | local development DB | Local analytical and model-publication target |
+| Supabase PostgreSQL | production DB | Production analytical and model-serving data |
 
-The historical `data/app` artifacts remain intentionally file-based. They are small enough for deployment and avoiding an unnecessary migration keeps Supabase storage usage lower.
-
-Future forecast artifacts are **not** stored under `data/app/future_forecast/`. The future serving layer is database-backed.
+Historical model predictions, metrics and feature importance are no longer runtime files under `data/app/`; they are published to PostgreSQL/Supabase.
 
 ## PostgreSQL model
 
@@ -110,38 +107,31 @@ Core analytical tables:
 - `fact_trips`
 - `pipeline_runs`
 
-Future forecast serving tables:
+Historical model-serving tables:
+
+- `historical_model_metric`
+- `historical_feature_importance`
+- `historical_model_prediction`
+
+Future forecast-serving tables:
 
 - `future_demand_profile`
 - `future_model_metric`
 - `future_forecast_metadata`
 
-The future forecast publisher replaces the future-serving snapshot transactionally in both local PostgreSQL and Supabase.
+Both publishers replace their serving snapshots transactionally in local PostgreSQL and, when configured, Supabase.
 
 ## Runtime serving plane
 
 ### FastAPI
 
-`backend/serving/fast_api.py` serves:
+`backend/serving/fast_api.py` serves PostgreSQL-backed demand/business analytics, historical model evaluation and future forecast inference. Historical `/metrics`, `/feature-importance` and `/predictions/{location_id}` queries are database-backed.
 
-- PostgreSQL-backed demand analytics
-- PostgreSQL-backed business analytics
-- PostgreSQL-backed future forecast metrics and predictions
-- file-backed historical model predictions, historical metrics and feature importance
-
-The `/predict` endpoint is a POST endpoint and performs lightweight lookup/fallback logic against the published future-demand profiles. No Spark or scikit-learn model is loaded for the request.
+The `/predict` endpoint performs lightweight lookup/fallback logic against published future-demand profiles. No Spark model is loaded for a request.
 
 ### Streamlit
 
-The Streamlit app provides:
-
-- Overview
-- Demand Explorer
-- Forecast
-- Business Insights
-- Strategic Insights
-
-Streamlit calls FastAPI through `API_BASE_URL`. It does not need database credentials.
+The Streamlit app provides Overview, Demand Explorer, Forecast, Business Insights and Strategic Insights. Streamlit calls FastAPI through `API_BASE_URL` and does not need database credentials.
 
 ## Cloud production topology
 
@@ -150,14 +140,13 @@ flowchart LR
     U[Browser] --> ST[Streamlit Community Cloud]
     ST -->|HTTPS / API_BASE_URL| R[FastAPI on Render]
     R -->|DATABASE_URL| S[(Supabase PostgreSQL\ntaxi_analytics)]
-    R --> A[(Deployed historical data/app artifacts)]
 ```
 
 Current production components:
 
 - Streamlit Community Cloud: frontend
 - Render: FastAPI backend
-- Supabase: production PostgreSQL
+- Supabase: production PostgreSQL analytical/model-serving store
 - Airflow: local Docker orchestration for now
 
 ## Key architectural decisions
@@ -168,20 +157,14 @@ Spark handles data-scale transformation and training. Runtime services remain li
 
 ### Separate historical evaluation from future inference
 
-The historical Random Forest is retained for model validation and short-horizon evaluation. It is not used as the long-horizon production model.
+The historical Random Forest is retained for model validation and short-horizon evaluation. It is not used as the long-horizon production model. Rolling future backtests currently select `zone_dow_hour_mean` for long-horizon production forecasting.
 
-For future forecasts, rolling backtests showed that the simpler `zone_dow_hour_mean` profile model outperformed the Random Forest across the validated future months, so it is the production future model.
+### Model serving is database-backed
 
-### Future serving is database-backed
+Historical predictions/metrics/feature importance and future profiles/metrics/metadata are published to PostgreSQL/Supabase and read by FastAPI. Monthly retraining therefore does not require committing model-serving artifacts to Git.
 
-Future profiles, metrics and metadata are published to PostgreSQL/Supabase and read by FastAPI. This removes the need to redeploy future forecast files after every retraining.
+### Data freshness and model freshness remain separate
 
-### Historical artifacts remain file-based
-
-Historical predictions, model metrics, feature importance and zones remain under `data/app/`. After a successful retraining, these files must be reviewed, committed and deployed manually if they changed.
-
-### Data freshness and model freshness are separate
-
-DB-backed analytics become current after a successful monthly data load. Model-backed outputs become current only after the ML pipeline completes; historical file-backed outputs additionally require the refreshed `data/app` files to be committed and deployed.
+DB-backed analytics become current after successful monthly data loading. Model-backed outputs become current after the ML training and publication stages complete successfully.
 
 For more detail, see [Data pipeline](data_pipeline.md), [Data model](data_model.md), [Forecasting](forecasting.md), and [Deployment](deployment.md).
