@@ -75,10 +75,12 @@ Normal behavior:
 5. Update local PostgreSQL and Supabase analytical data.
 6. Retrain the historical model.
 7. Publish historical predictions, metrics and feature importance to local PostgreSQL and Supabase.
-8. Run future-model validation/training and publish the future forecast snapshot.
+8. Run the four-candidate future-model rolling backtest, select the production winner and publish the month-aware future snapshot.
 9. Send a Slack success notification after successful retraining and publication.
 
 Pipeline/task failures trigger the configured Slack failure callback. A successful no-op intentionally remains silent in Slack.
+
+The scheduler/API authentication path and no-op branch have been manually validated after the Airflow JWT restart. The next scheduled run is expected to use the same state-driven path; as with any scheduled local workflow, the Windows host, Docker Desktop and Airflow containers must be running and the host must not be suspended.
 
 ## Model publication validation
 
@@ -95,13 +97,29 @@ Future snapshot checks:
 
 ```sql
 SELECT COUNT(*) FROM taxi_analytics.future_demand_profile;
-SELECT * FROM taxi_analytics.future_model_metric ORDER BY model;
+SELECT MIN(month), MAX(month), COUNT(DISTINCT month)
+FROM taxi_analytics.future_demand_profile;
+SELECT * FROM taxi_analytics.future_model_metric ORDER BY mae, rmse;
 SELECT * FROM taxi_analytics.future_forecast_metadata WHERE id = 1;
 ```
 
-For the validated May 2026 historical snapshot, `historical_model_prediction` contains **197,160 rows** and is trained through `2026-05-31 23:00:00`.
+Validated May 2026 historical snapshot:
 
-For the validated May 2026 future snapshot, the profile count is **41,604** and the production model is `zone_dow_hour_mean`.
+- `historical_model_prediction`: **197,160 rows**
+- trained through: **2026-05-31 23:00:00**
+- Random Forest: MAE **4.63**, RMSE **15.97**
+
+Validated May 2026 future snapshot:
+
+- `future_demand_profile`: **499,248 rows**
+- month coverage: **1–12**
+- trained through: **2026-05-31 23:00:00**
+- rolling holdouts: **4 months**
+- selected production model: **`zone_dow_hour_mean`**
+- production MAE: **6.4030**
+- production RMSE: **16.0399**
+
+The future row count, month coverage, four candidate metrics and metadata were checked in both local PostgreSQL and Supabase. A production `POST /predict` request through Render also returned a successful forecast, validating the serving path end-to-end.
 
 There is **no manual Git commit/deployment step for historical or future model-serving artifacts**. The publishers update PostgreSQL/Supabase directly.
 
@@ -117,7 +135,7 @@ Notification behavior:
 - **pipeline/task failure** → Slack failure notification with run/task context and an Airflow log URL when available
 - **normal daily no-op** → no Slack message
 
-The success notification no longer requests manual `data/app` artifact commits because model-serving snapshots are database-backed.
+The success notification does not request manual `data/app` artifact commits because model-serving snapshots are database-backed.
 
 `SLACK_WEBHOOK_URL` is supplied through the local Airflow Docker environment and must never be committed to Git.
 
