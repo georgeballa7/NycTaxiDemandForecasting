@@ -2,12 +2,12 @@
 
 ## Forecasting tasks
 
-The project now distinguishes two related forecasting tasks:
+The project distinguishes two related forecasting tasks:
 
 1. **Historical model evaluation** — a Spark Random Forest using lag and rolling-demand features.
-2. **Future demand inference** — a long-horizon zone/day-of-week/hour demand profile served from PostgreSQL/Supabase.
+2. **Future demand inference** — a long-horizon forecasting model validated with future-month backtests and served from PostgreSQL/Supabase.
 
-Both estimate hourly cleaned Yellow Taxi pickup demand at taxi-zone level, but they have different purposes and serving requirements.
+Both estimate hourly cleaned Yellow Taxi pickup demand at taxi-zone level, but they have different purposes and feature-availability constraints.
 
 ## Historical Random Forest
 
@@ -29,11 +29,7 @@ The historical Spark ML model uses 13 predictors:
 
 Rolling windows exclude the current target observation. Rows are retained for modeling only after a complete seven-day trailing history is available.
 
-The Spark `RandomForestRegressor` uses:
-
-- 100 trees
-- maximum depth 10
-- random seed 42
+The Spark `RandomForestRegressor` uses 100 trees, maximum depth 10 and random seed 42.
 
 ### Latest validated historical retraining
 
@@ -49,17 +45,13 @@ Test rows: **197,160**
 Latest data timestamp: **2026-05-31 23:00:00**  
 Test period: **May 2026**
 
-The Random Forest therefore remains useful for historical validation and short-horizon model evaluation.
+Historical predictions, model metrics and feature importance are published to PostgreSQL/Supabase after training. FastAPI reads them from the database rather than `data/app` files.
 
 ## Why a separate future model is needed
 
 Lag-based features such as `lag_1h`, `lag_24h` and `lag_168h` require recent observed demand. They are appropriate for historical/near-term evaluation but are not naturally available for an arbitrary date months into the future.
 
-For long-horizon user-facing forecasts, the project therefore validates models using rolling future-month backtests and deploys a profile model that only requires:
-
-- taxi zone
-- day of week
-- hour of day
+For long-horizon user-facing forecasts, models must be validated using features available at prediction time.
 
 ## Rolling future-model validation
 
@@ -79,7 +71,7 @@ Aggregate results:
 | `zone_dow_hour_mean` | **6.4030** | **16.0399** | 4 |
 | `random_forest` | 7.3245 | 19.7391 | 4 |
 
-The profile model wins the validated future comparison and is therefore the **production future forecasting model**.
+The profile model currently wins the validated future comparison and is therefore the **production future forecasting model**.
 
 ## Production future model
 
@@ -89,8 +81,6 @@ The profile model wins the validated future comparison and is therefore the **pr
 LocationID × Spark day_of_week × hour
 ```
 
-The publisher creates one serving snapshot and writes it to PostgreSQL/Supabase.
-
 Validated snapshot through May 2026:
 
 - production model: `zone_dow_hour_mean`
@@ -99,14 +89,7 @@ Validated snapshot through May 2026:
 
 ## Future prediction serving
 
-FastAPI exposes:
-
-- `GET /future-model-metrics`
-- `POST /predict`
-
-`POST /predict` accepts a taxi-zone ID and future datetime. Internally it maps the datetime to NYC time where needed and looks up the published profile.
-
-Fallback order:
+FastAPI exposes `GET /future-model-metrics` and `POST /predict`. The prediction endpoint maps a future datetime to the published profile and uses this fallback order:
 
 ```text
 exact zone + day-of-week + hour
@@ -116,35 +99,23 @@ zone + hour average
 zone overall average
 ```
 
-The response reports the method used as:
-
-- `zone_dow_hour`
-- `zone_hour_fallback`
-- `zone_fallback`
-
-A zone with no historical profile returns HTTP 404. A forecast datetime at or before the model's `trained_through` timestamp returns HTTP 400.
-
-Example validated production request:
-
-```text
-LocationID: 161 (Midtown Center)
-Forecast datetime: 2026-09-18 20:00
-Predicted demand: 275.596...
-Method: zone_dow_hour
-Trained through: 2026-05-31 23:00
-```
+A forecast datetime at or before the model's `trained_through` timestamp returns HTTP 400.
 
 ## Serving storage
 
-Future forecast serving is fully database-backed. The following tables are used:
+Historical serving tables:
+
+- `taxi_analytics.historical_model_metric`
+- `taxi_analytics.historical_feature_importance`
+- `taxi_analytics.historical_model_prediction`
+
+Future serving tables:
 
 - `taxi_analytics.future_demand_profile`
 - `taxi_analytics.future_model_metric`
 - `taxi_analytics.future_forecast_metadata`
 
-There is intentionally no `data/app/future_forecast/` directory in the production design.
-
-Historical model outputs remain file-based under `data/app/` and are loaded by FastAPI for historical validation views.
+Both historical and future serving are database-backed. There is no manual Git deployment step for model-serving snapshots after retraining.
 
 ## ML orchestration
 
@@ -153,26 +124,19 @@ Historical model outputs remain file-based under `data/app/` and are loaded by F
 ```text
 Historical Random Forest
         ↓
-Historical app artifacts
+Historical database publisher
         ↓
 Future rolling backtest
         ↓
-Future profile publisher
+Future database publisher
         ↓
 Local PostgreSQL + Supabase
 ```
 
-## Modeling limitations
+## Modeling limitations and next evaluation direction
 
-The production future profile captures recurring zone/day/hour patterns but does not currently model:
+The current production future profile captures recurring zone/day/hour patterns but does not currently model weather, special events, holidays as a dedicated feature, traffic conditions or unexpected disruptions.
 
-- weather
-- special events
-- holidays as a dedicated feature
-- traffic conditions
-- economic shocks
-- unexpected service disruptions
-
-The forecast should therefore be interpreted as expected demand based on recurring historical temporal patterns, not as a real-time event-aware forecast.
+A practical next modeling iteration is to compare the existing profile baseline with additional models using only forecast-safe calendar and historical aggregate features. Candidate features include hour/day/month cyclical encodings, weekend/holiday indicators and zone-level historical demand profiles. This allows fair comparison without using unknown future observed lags.
 
 For upstream construction see [Data pipeline](data_pipeline.md), and for production configuration see [Deployment](deployment.md).
