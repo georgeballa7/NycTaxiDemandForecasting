@@ -23,6 +23,13 @@ st.write(
     "Forecast hourly NYC Yellow Taxi pickup demand for a selected taxi zone, date and hour."
 )
 
+MODEL_LABELS = {
+    "zone_dow_hour_mean": "Zone + weekday + hour baseline",
+    "linear_regression": "Linear Regression",
+    "random_forest": "Random Forest",
+    "gradient_boosted_trees": "Gradient-Boosted Trees",
+}
+
 
 @st.cache_data(ttl=300)
 def load_forecast_reference_data():
@@ -32,11 +39,11 @@ def load_forecast_reference_data():
 try:
     zones, future_metrics = load_forecast_reference_data()
     zones_df = pd.DataFrame(zones)
-    metrics_by_model = {item["model"]: item for item in future_metrics}
-
-    profile_metrics = metrics_by_model["zone_dow_hour_mean"]
-    rf_metrics = metrics_by_model["random_forest"]
-    backtest_months = int(profile_metrics["backtest_months"])
+    metrics_df = pd.DataFrame(future_metrics).sort_values(
+        ["mae", "rmse", "model"], ignore_index=True
+    )
+    production_model = str(metrics_df.iloc[0]["model"])
+    backtest_months = int(metrics_df.iloc[0]["backtest_months"])
 
     st.subheader("Taxi Zone")
     borough_col, zone_col = st.columns(2)
@@ -61,7 +68,7 @@ try:
     st.divider()
     st.subheader("Future Demand Forecast")
     st.caption(
-        "Historical zone, weekday and hour patterns are used for long-horizon forecasting. "
+        "Forecast-safe calendar and historical demand patterns are used for long-horizon forecasting. "
         "Times are interpreted in New York local time."
     )
 
@@ -95,8 +102,11 @@ try:
             result_col2.metric("Forecast Hour", f"{forecast_datetime:%H:%M}")
 
             method_labels = {
+                **MODEL_LABELS,
                 "zone_dow_hour": "Zone + weekday + hour profile",
+                "month_hour_fallback": "Zone + month + hour fallback",
                 "zone_hour_fallback": "Zone + hour fallback",
+                "hour_fallback": "Zone + hour fallback",
                 "zone_fallback": "Zone average fallback",
             }
             trained_through = pd.to_datetime(result["trained_through"]).strftime("%d %b %Y %H:%M")
@@ -118,21 +128,35 @@ try:
     st.divider()
     st.subheader("Model Validation")
     st.write(
-        "The production method was selected using leakage-safe rolling time-series backtesting. "
-        "For long-horizon forecasting, the historical zone-weekday-hour profile outperformed "
-        "the Random Forest across the evaluated holdouts."
+        "Production forecasting is selected automatically using leakage-safe rolling time-series "
+        "backtesting. All candidate models are evaluated on the same holdout months; lowest average "
+        "MAE wins, with RMSE used as the tie-breaker."
     )
 
-    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-    metric_col1.metric("Profile MAE", f"{profile_metrics['mae']:.2f}")
-    metric_col2.metric("Profile RMSE", f"{profile_metrics['rmse']:.2f}")
-    metric_col3.metric("Random Forest MAE", f"{rf_metrics['mae']:.2f}")
-    metric_col4.metric("Random Forest RMSE", f"{rf_metrics['rmse']:.2f}")
+    winner = metrics_df.iloc[0]
+    winner_col, holdout_col = st.columns(2)
+    winner_col.metric("Production Model", MODEL_LABELS.get(production_model, production_model))
+    holdout_col.metric("Rolling Holdout Months", backtest_months)
+
+    display_metrics = metrics_df.copy()
+    display_metrics["Model"] = display_metrics["model"].map(
+        lambda model: MODEL_LABELS.get(model, model)
+    )
+    display_metrics["MAE"] = display_metrics["mae"].round(2)
+    display_metrics["RMSE"] = display_metrics["rmse"].round(2)
+    display_metrics["Status"] = display_metrics["model"].map(
+        lambda model: "Production" if model == production_model else "Candidate"
+    )
+    st.dataframe(
+        display_metrics[["Model", "MAE", "RMSE", "Status"]],
+        hide_index=True,
+        use_container_width=True,
+    )
 
     st.caption(
-        f"Validation currently summarizes {backtest_months} rolling monthly holdouts. "
-        "Lower MAE and RMSE indicate better forecast accuracy. The model with the stronger "
-        "rolling holdout performance is selected for production forecasting."
+        f"Current winner: {MODEL_LABELS.get(production_model, production_model)} "
+        f"(MAE {winner['mae']:.2f}, RMSE {winner['rmse']:.2f}) across "
+        f"{backtest_months} rolling monthly holdouts. The winner is re-selected after future-model retraining."
     )
 
 except Exception as exc:
