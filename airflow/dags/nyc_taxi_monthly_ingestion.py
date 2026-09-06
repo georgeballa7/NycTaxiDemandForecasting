@@ -155,11 +155,8 @@ def nyc_taxi_monthly_ingestion():
                 "✅ NYC Taxi ML Retraining Completed",
                 "",
                 f"New data month: {year}-{month:02d}",
-                "Historical model retrained successfully.",
-                "Future forecast pipeline refreshed.",
-                "",
-                "Action required:",
-                "Review and commit refreshed data/app artifacts.",
+                "Historical model retrained and published successfully.",
+                "Future forecast retrained and published successfully.",
             ]
         )
 
