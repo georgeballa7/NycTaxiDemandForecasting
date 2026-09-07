@@ -1,146 +1,56 @@
-# Deployment and operations
+# Deployment
 
-## Deployment boundary
+The production architecture separates data persistence, API serving, frontend hosting, orchestration and continuous integration.
 
-The project separates:
+## Services
 
-1. **offline orchestration** — Airflow, PySpark processing, database publication and ML retraining
-2. **backend serving** — FastAPI on Render
-3. **frontend presentation** — Streamlit Community Cloud
-4. **production database** — Supabase PostgreSQL
+| Component | Role |
+|---|---|
+| Supabase PostgreSQL | Production analytical and model-serving data |
+| Render | FastAPI hosting |
+| Streamlit Community Cloud | Streamlit frontend |
+| Docker Compose | Local Airflow environment |
+| GitHub Actions | Automated pytest execution |
 
-Only FastAPI and Streamlit are web runtimes. Airflow/Spark remain outside the request path.
+The hosted FastAPI service reads prepared results from Supabase PostgreSQL. Streamlit communicates with FastAPI and therefore does not require direct access to the analytical database.
 
-## Production topology
+## Configuration
 
-```mermaid
-flowchart LR
-    TLC[NYC TLC monthly data] --> AF[Airflow + Spark]
-    AF --> SU[(Supabase PostgreSQL\ntaxi_analytics)]
-    B[Browser] --> ST[Streamlit Community Cloud]
-    ST -->|HTTPS / API_BASE_URL| RE[Render FastAPI]
-    RE -->|DATABASE_URL| SU
-```
+Secrets and environment-specific values are supplied through environment variables rather than committed files. Typical configuration includes the database connection, hosted API URL and optional Slack webhook.
 
-## Current production services
+Local development can use a local PostgreSQL connection while hosted services use their production configuration. The codebase keeps the same application logic across environments.
 
-- **Streamlit Community Cloud** runs `frontend/streamlit_app.py`.
-- **Render** hosts `backend.serving.fast_api:app`.
-- **Supabase** hosts production analytical data plus historical and future model-serving snapshots.
-- **Airflow** runs locally with Docker Compose and Airflow 3.3.1; its PostgreSQL container stores Airflow metadata only.
-
-Database separation:
+## Deployment Flow
 
 ```text
-Airflow metadata PostgreSQL → Airflow state only
-Local Windows PostgreSQL   → local NYC Taxi development/publication
-Supabase PostgreSQL        → production analytical/model serving
+Code push
+   ↓
+GitHub Actions tests
+   ↓
+Application deployment
+   ↓
+FastAPI reads published PostgreSQL data
+   ↓
+Streamlit consumes FastAPI
 ```
 
-## Environment variables
+GitHub Actions installs Python dependencies and Java for PySpark, then runs the focused pytest suite. Tests use isolated configuration and do not require production database credentials.
 
-| Variable | Used by | Purpose |
-|---|---|---|
-| `DATABASE_URL` | Render backend / local backend | Runtime PostgreSQL connection |
-| `AIRFLOW_DATABASE_URL` | Airflow project tasks | Local NYC Taxi PostgreSQL connection |
-| `SUPABASE_DATABASE_URL` | Airflow/ML publishers | Production Supabase publication |
-| `API_BASE_URL` | Streamlit | Render FastAPI base URL |
-| `API_TIMEOUT` | Streamlit | HTTP timeout |
-| `SLACK_WEBHOOK_URL` | Airflow | Retraining success and failure notifications |
-| `AIRFLOW_JWT_SECRET` | Airflow | Local Airflow API authentication JWT secret |
+## Data Refresh vs. Code Deployment
 
-Secrets must not be committed. Local `.env` files and Streamlit local secrets are ignored by Git.
+A monthly TLC ingestion is a **data refresh**, not a code deployment. Airflow processes newly available data and republishes model outputs without requiring changes to README or documentation.
 
-## Local execution
+A deployment is needed only when application code, dependencies or infrastructure configuration changes. This distinction allows the live system to advance to new data months while the architecture documentation remains valid.
 
-```bash
-uvicorn backend.serving.fast_api:app --host 127.0.0.1 --port 8000
-streamlit run frontend/streamlit_app.py
-python -m backend.workflows.run_pipeline
-python -m backend.workflows.ml_pipeline
-python -m backend.src.ml.publish_historical_model
-python -m backend.src.ml.publish_future_forecast
-```
+## Operational Checks
 
-## Airflow monthly operation
+The main production checks are intentionally simple:
 
-The scheduled `nyc_taxi_monthly_ingestion` DAG runs daily.
+- Airflow DAG completes successfully;
+- new data triggers model retraining and publication;
+- a no-op run remains successful when TLC has not published the next month;
+- FastAPI health endpoint responds successfully;
+- Streamlit can retrieve API data;
+- GitHub Actions tests pass for code changes.
 
-Normal behavior:
-
-1. Read the last successfully processed TLC month.
-2. Check whether the next month is available.
-3. If unavailable, finish successfully without retraining or a Slack success notification.
-4. If available, process at most that one month.
-5. Update local PostgreSQL and Supabase analytical data.
-6. Retrain the historical model.
-7. Publish historical predictions, metrics and feature importance to local PostgreSQL and Supabase.
-8. Run the four-candidate future-model rolling backtest, select the production winner and publish the month-aware future snapshot.
-9. Send a Slack success notification after successful retraining and publication.
-
-Pipeline/task failures trigger the configured Slack failure callback. A successful no-op intentionally remains silent in Slack.
-
-The scheduler/API authentication path and no-op branch have been manually validated after the Airflow JWT restart. The next scheduled run is expected to use the same state-driven path; as with any scheduled local workflow, the Windows host, Docker Desktop and Airflow containers must be running and the host must not be suspended.
-
-## Model publication validation
-
-Historical snapshot checks:
-
-```sql
-SELECT COUNT(*) FROM taxi_analytics.historical_model_metric;
-SELECT COUNT(*) FROM taxi_analytics.historical_feature_importance;
-SELECT COUNT(*) FROM taxi_analytics.historical_model_prediction;
-SELECT MAX(pickup_hour) FROM taxi_analytics.historical_model_prediction;
-```
-
-Future snapshot checks:
-
-```sql
-SELECT COUNT(*) FROM taxi_analytics.future_demand_profile;
-SELECT MIN(month), MAX(month), COUNT(DISTINCT month)
-FROM taxi_analytics.future_demand_profile;
-SELECT * FROM taxi_analytics.future_model_metric ORDER BY mae, rmse;
-SELECT * FROM taxi_analytics.future_forecast_metadata WHERE id = 1;
-```
-
-Validated May 2026 historical snapshot:
-
-- `historical_model_prediction`: **197,160 rows**
-- trained through: **2026-05-31 23:00:00**
-- Random Forest: MAE **4.63**, RMSE **15.97**
-
-Validated May 2026 future snapshot:
-
-- `future_demand_profile`: **499,248 rows**
-- month coverage: **1–12**
-- trained through: **2026-05-31 23:00:00**
-- rolling holdouts: **4 months**
-- selected production model: **`zone_dow_hour_mean`**
-- production MAE: **6.4030**
-- production RMSE: **16.0399**
-
-The future row count, month coverage, four candidate metrics and metadata were checked in both local PostgreSQL and Supabase. A production `POST /predict` request through Render also returned a successful forecast, validating the serving path end-to-end.
-
-There is **no manual Git commit/deployment step for historical or future model-serving artifacts**. The publishers update PostgreSQL/Supabase directly.
-
-## Data-range behavior
-
-FastAPI exposes current demand-data coverage from PostgreSQL through `/data-range`. Streamlit uses this endpoint for date limits rather than hard-coded project dates.
-
-## Slack notifications
-
-Notification behavior:
-
-- **new TLC month + successful ML retraining/publication** → Slack success notification
-- **pipeline/task failure** → Slack failure notification with run/task context and an Airflow log URL when available
-- **normal daily no-op** → no Slack message
-
-The success notification does not request manual `data/app` artifact commits because model-serving snapshots are database-backed.
-
-`SLACK_WEBHOOK_URL` is supplied through the local Airflow Docker environment and must never be committed to Git.
-
-## Runtime boundaries
-
-The deployed Render/Streamlit runtime does not require PySpark, Java, Airflow, raw TLC Parquet files, or the persisted Spark Random Forest model. Render needs the Supabase database connection; Streamlit needs only the FastAPI endpoint.
-
-For component responsibilities see [Architecture](architecture.md), for table structure see [Data model](data_model.md), and for pipeline lineage see [Data pipeline](data_pipeline.md).
+No production credentials are required by the unit-test suite.

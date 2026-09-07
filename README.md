@@ -1,112 +1,84 @@
-# 🚕 NYC Taxi Demand Forecasting & Business Analytics
+# NYC Yellow Taxi Demand Forecasting
 
-An end-to-end data engineering and analytics project built on NYC Yellow Taxi data. It combines automated data processing, business analytics, machine learning, demand forecasting, API serving and an interactive dashboard.
+An end-to-end analytics project for NYC Yellow Taxi demand. It combines automated TLC data ingestion, PySpark processing, PostgreSQL, demand modelling, FastAPI, Streamlit, Airflow and automated tests.
 
-🌐 **Live application:** https://george-nyc-taxi-analytics.streamlit.app/
+The system is designed to grow with newly published monthly TLC data without requiring documentation changes.
 
-## What the Project Does
-
-The project turns monthly NYC TLC Yellow Taxi data into analysis and demand forecasts through an automated workflow:
+## Project Flow
 
 ```text
-NYC TLC monthly data
-        ↓
-PySpark processing
-        ↓
+TLC monthly data
+      ↓
+Ingestion + PySpark processing
+      ↓
 PostgreSQL / Supabase
-        ↓
-Historical ML + Future Forecast
-        ↓
+      ↓
+Historical model evaluation + future forecasting
+      ↓
 FastAPI
-        ↓
-Streamlit Analytics App
+      ↓
+Streamlit
 ```
 
-Apache Airflow checks for newly available TLC data each day. When a new month appears, the pipeline processes it, updates the databases, retrains the models and republishes the serving data. If no new month is available, the run finishes without unnecessary retraining.
+Airflow orchestrates the recurring update workflow. When a new TLC month is available, the data is processed and the model outputs are refreshed. If no new month is available, the workflow exits without unnecessary retraining.
 
-The currently validated data range is **January 2025 through May 2026**.
+## Local Execution
 
-## Main Capabilities
+Run commands from the repository root. Configure the required environment variables in `.env` before starting components that use the database or external services.
 
-- incremental monthly data ingestion and processing
-- automated orchestration with Airflow
-- PostgreSQL/Supabase analytical data model
-- demand and business analytics by time, zone and borough
-- historical demand-model evaluation
-- leakage-safe future forecasting with automatic model selection
-- FastAPI-backed analytics and prediction serving
-- interactive Streamlit reporting
-- targeted automated tests with pytest and GitHub Actions CI
-- Slack notifications for pipeline failures and successful retraining
+### 1. Install dependencies
 
-## Forecasting
-
-The project separates historical model evaluation from true future forecasting.
-
-The historical Random Forest improves on the persistence baseline:
-
-| Model | MAE | RMSE |
-|---|---:|---:|
-| Persistence baseline | 6.51 | 21.84 |
-| **Random Forest** | **4.63** | **15.97** |
-
-For future forecasting, four candidates are evaluated with rolling time-series backtesting. The production model is selected automatically using MAE, with RMSE as tie-breaker.
-
-| Future model | MAE | RMSE |
-|---|---:|---:|
-| **Zone-weekday-hour baseline** | **6.40** | **16.04** |
-| Linear Regression | 7.03 | 16.43 |
-| Random Forest | 7.15 | 18.93 |
-| Gradient-Boosted Trees | 7.30 | 19.37 |
-
-The simpler baseline currently wins the future forecasting task and is therefore used in production. A different candidate will be promoted automatically if it performs better after a later retraining.
-
-## Tech Stack
-
-**Python · Pandas · PySpark · PostgreSQL · Supabase · Apache Airflow · Docker · Spark ML · FastAPI · SQLAlchemy · Streamlit · Plotly · pytest · GitHub Actions · Render · GitHub**
-
-## Code Guide
-
-```text
-airflow/dags/       Airflow orchestration
-backend/src/        ingestion, processing, database and ML logic
-backend/workflows/  reusable end-to-end workflows
-backend/serving/    FastAPI serving layer
-backend/sql/        database schema
-frontend/           Streamlit application
-tests/              focused automated tests
-docs/               detailed technical documentation
+```bash
+pip install -r requirements.txt
 ```
 
-The main workflow entry points are:
+### 2. Run the data pipeline
 
 ```bash
 python -m backend.workflows.run_pipeline
+```
+
+This performs the ingestion and processing workflow used to prepare the analytical data.
+
+### 3. Run the ML pipeline
+
+```bash
 python -m backend.workflows.ml_pipeline
 ```
 
-Run the automated test suite with:
+This evaluates the historical demand model, compares forecast-safe future models, selects the best candidate and publishes the serving data.
+
+### 4. Start FastAPI
+
+```bash
+uvicorn backend.serving.fast_api:app --reload
+```
+
+### 5. Start Streamlit
+
+In a second terminal:
+
+```bash
+streamlit run frontend/Home.py
+```
+
+### 6. Run tests
 
 ```bash
 pytest -q
 ```
 
-GitHub Actions runs the same tests automatically for pushes and pull requests targeting `main`.
-
-For normal operation, the scheduled Airflow DAG handles incremental ingestion and triggers model retraining only when new data has been processed.
+The focused test suite covers critical API, forecasting-feature and model-selection behaviour. GitHub Actions runs the same tests automatically on pushes and pull requests to `main`.
 
 ## Documentation
 
-Implementation details are intentionally kept out of this README. The technical documentation is available under `docs/`:
+Detailed documentation is intentionally split by responsibility:
 
-- **Architecture** — system components and responsibilities
-- **Data Pipeline** — ingestion, transformation and orchestration
-- **Data Model** — PostgreSQL/Supabase analytical and serving tables
-- **Forecasting** — feature engineering, backtesting and model selection
-- **Deployment & Operations** — Airflow, Supabase, Render and Streamlit operation
+- [Backend](docs/backend.md) — data processing, database, modelling and API
+- [Orchestration](docs/orchestration.md) — Airflow and automated monthly updates
+- [Frontend](docs/frontend.md) — Streamlit application
+- [Deployment](docs/deployment.md) — production services, configuration and CI
 
-## Live Demo
+## Tech Stack
 
-**NYC Taxi Analytics:** https://george-nyc-taxi-analytics.streamlit.app/
-
-> The FastAPI backend uses Render's free tier, so the first request after inactivity may take a short time while the service starts.
+Python · PySpark · PostgreSQL · Supabase · scikit-learn / Spark ML · FastAPI · Streamlit · Airflow · Docker · pytest · GitHub Actions
