@@ -1,27 +1,45 @@
 # Frontend
 
-The Streamlit application is the presentation layer of the project. It consumes prepared analytics and model results through FastAPI instead of running PySpark or training models in response to user interaction.
+The Streamlit app is a lightweight presentation layer over FastAPI. It does not start Spark, train models or read large processed datasets directly.
 
-## Application Responsibilities
+**Live application:** https://george-nyc-taxi-analytics.streamlit.app/
 
-The application presents three main types of information:
+## UI Flow
 
-- exploratory demand and trip analytics;
-- historical model evaluation;
-- future taxi-demand forecasts.
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Streamlit
+    participant API as FastAPI
+    participant DB as PostgreSQL
+    User->>UI: Select analysis / zone / future time
+    UI->>API: Request data or prediction
+    API->>DB: Query published results
+    DB-->>API: Analytics / model output
+    API-->>UI: JSON response
+    UI-->>User: Charts, metrics and forecast
+```
 
-The UI obtains zones, metrics, analytical results and predictions from API endpoints. This separation keeps the frontend lightweight and allows the backend or database implementation to evolve without duplicating data logic in Streamlit.
+The application presents exploratory analytics, historical model evaluation and future-demand forecasting. Model metrics and the production-model label are read dynamically from published results rather than hard-coded into the UI.
 
-## Historical Model View
+## UI Mockup
 
-The model-evaluation view displays persisted evaluation metrics, feature importance and historical predictions. These results represent the latest published model state; they are not hard-coded into the page.
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ NYC Yellow Taxi Analytics                                  │
+├───────────────┬──────────────────────────────────────────────┤
+│ Navigation    │ Main view                                    │
+│               │                                              │
+│ • Overview    │  KPI        KPI        KPI                    │
+│ • Analytics   │ ┌────────┐ ┌────────┐ ┌────────┐             │
+│ • Model       │ └────────┘ └────────┘ └────────┘             │
+│ • Forecast    │                                              │
+│               │  ┌────────────────────────────────────────┐  │
+│ Zone / Date   │  │          Interactive chart             │  │
+│ controls      │  └────────────────────────────────────────┘  │
+│               │                                              │
+│               │  Model metrics / forecast result             │
+└───────────────┴──────────────────────────────────────────────┘
+```
 
-## Future Forecast View
-
-A user selects a taxi zone and future date/time. Streamlit sends the request to FastAPI and displays the returned demand estimate and forecast method.
-
-The validation section retrieves the stored future-model metrics and shows all evaluated candidates. The production model is identified dynamically from the published results, so the interface does not assume that a particular algorithm must always win.
-
-## Design Principle
-
-Streamlit is deliberately a consumer of the production data contract. It does not read large processed datasets, start Spark or choose models itself. As new monthly data is ingested and the backend republishes results, the application automatically reflects the updated state.
+The mockup documents the UI structure rather than a specific data snapshot, so it remains valid as monthly data changes.

@@ -1,84 +1,52 @@
 # NYC Yellow Taxi Demand Forecasting
 
-An end-to-end analytics project for NYC Yellow Taxi demand. It combines automated TLC data ingestion, PySpark processing, PostgreSQL, demand modelling, FastAPI, Streamlit, Airflow and automated tests.
+An end-to-end analytics project for NYC Yellow Taxi demand: automated TLC ingestion, PySpark processing, PostgreSQL, machine learning, FastAPI, Streamlit and Airflow.
 
-The system is designed to grow with newly published monthly TLC data without requiring documentation changes.
+**Live app:** https://george-nyc-taxi-analytics.streamlit.app/
 
 ## Project Flow
 
 ```text
-TLC monthly data
-      ↓
-Ingestion + PySpark processing
-      ↓
-PostgreSQL / Supabase
-      ↓
-Historical model evaluation + future forecasting
-      ↓
-FastAPI
-      ↓
-Streamlit
+TLC monthly data → PySpark → PostgreSQL / Supabase → ML → FastAPI → Streamlit
+                         ↑
+                    Airflow orchestration
 ```
 
-Airflow orchestrates the recurring update workflow. When a new TLC month is available, the data is processed and the model outputs are refreshed. If no new month is available, the workflow exits without unnecessary retraining.
+The pipeline is state-driven: newly published TLC data can be ingested and model outputs refreshed without changing the documentation.
 
 ## Local Execution
 
-Run commands from the repository root. Configure the required environment variables in `.env` before starting components that use the database or external services.
-
-### 1. Install dependencies
+Run from the repository root and configure the required environment variables in `.env`.
 
 ```bash
+# 1. Install dependencies
 pip install -r requirements.txt
-```
 
-### 2. Run the data pipeline
-
-```bash
+# 2. Build/process the analytical data
 python -m backend.workflows.run_pipeline
-```
 
-This performs the ingestion and processing workflow used to prepare the analytical data.
-
-### 3. Run the ML pipeline
-
-```bash
+# 3. Train, evaluate and publish ML outputs
 python -m backend.workflows.ml_pipeline
-```
 
-This evaluates the historical demand model, compares forecast-safe future models, selects the best candidate and publishes the serving data.
-
-### 4. Start FastAPI
-
-```bash
+# 4. Start FastAPI
 uvicorn backend.serving.fast_api:app --reload
-```
 
-### 5. Start Streamlit
-
-In a second terminal:
-
-```bash
+# 5. In a second terminal, start Streamlit
 streamlit run frontend/Home.py
-```
 
-### 6. Run tests
-
-```bash
+# 6. Run tests
 pytest -q
 ```
 
-The focused test suite covers critical API, forecasting-feature and model-selection behaviour. GitHub Actions runs the same tests automatically on pushes and pull requests to `main`.
+GitHub Actions runs the focused pytest suite automatically on pushes and pull requests to `main`.
 
 ## Documentation
 
-Detailed documentation is intentionally split by responsibility:
-
-- [Backend](docs/backend.md) — data processing, database, modelling and API
-- [Orchestration](docs/orchestration.md) — Airflow and automated monthly updates
-- [Frontend](docs/frontend.md) — Streamlit application
-- [Deployment](docs/deployment.md) — production services, configuration and CI
+- [Backend](docs/backend.md) — data model, processing, ML and API
+- [Orchestration](docs/orchestration.md) — Airflow update workflow
+- [Frontend](docs/frontend.md) — Streamlit UI and mockup
+- [Deployment](docs/deployment.md) — hosted architecture and CI
 
 ## Tech Stack
 
-Python · PySpark · PostgreSQL · Supabase · scikit-learn / Spark ML · FastAPI · Streamlit · Airflow · Docker · pytest · GitHub Actions
+Python · PySpark · PostgreSQL · Supabase · Spark ML · FastAPI · Streamlit · Airflow · Docker · pytest · GitHub Actions
