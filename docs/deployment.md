@@ -1,38 +1,34 @@
 # Deployment
 
-Production separates persistence, API serving, frontend hosting, orchestration and CI.
+The hosted application separates database persistence, API serving, frontend hosting and continuous integration.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    GH[GitHub] --> CI[GitHub Actions]
+    GH[GitHub] --> CI[GitHub Actions / pytest]
     GH --> Render[Render / FastAPI]
     GH --> ST[Streamlit Cloud]
-    Airflow[Local Airflow / Docker] --> Supabase[(Supabase PostgreSQL)]
+    Airflow[Airflow / Docker] --> Supabase[(Supabase PostgreSQL)]
     Render --> Supabase
     ST --> Render
 ```
 
-| Component | Responsibility |
+| Technology | Use in the project |
 |---|---|
-| Supabase PostgreSQL | Hosted analytics and model-serving data |
-| Render | FastAPI |
-| Streamlit Community Cloud | Frontend |
-| Docker Compose | Local Airflow runtime |
-| GitHub Actions | Automated pytest suite |
+| **Supabase PostgreSQL** | Hosted analytical and model-serving database |
+| **Render** | Hosts the FastAPI backend |
+| **Streamlit Community Cloud** | Hosts the interactive frontend |
+| **Docker Compose** | Runs the local Airflow environment consistently |
+| **GitHub Actions** | Runs pytest automatically on code changes |
 
 ## Configuration & CI
 
-Secrets and environment-specific values are supplied through environment variables rather than committed files. Local development can use local PostgreSQL while hosted services use production configuration.
+Environment-specific values such as database connections, API endpoints and Slack configuration are supplied through environment variables rather than committed secrets.
 
-On pushes and pull requests to `main`, GitHub Actions installs Python dependencies and Java for PySpark, then runs pytest with isolated test configuration. Production database credentials are not required by the test suite.
+GitHub Actions installs the Python dependencies and Java required by PySpark, then runs the focused pytest suite on pushes and pull requests to `main`. Tests use isolated configuration rather than production database credentials.
 
-## Data Refresh vs. Deployment
-
-A successful TLC ingestion is a **data refresh**, not a code deployment. Airflow processes the new data and republishes model outputs; README and docs do not need monthly edits.
-
-Code deployment is required only when application code, dependencies or infrastructure configuration changes.
+A TLC data refresh is handled by Airflow and the backend pipeline. Application deployment is required when code, dependencies or infrastructure configuration changes.
 
 ## Production Links
 

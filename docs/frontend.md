@@ -1,10 +1,18 @@
 # Frontend
 
-The Streamlit app is a lightweight presentation layer over FastAPI. It does not start Spark, train models or read large processed datasets directly.
+**Streamlit** provides the interactive analytics interface, while **Plotly** supports interactive visualisations. The frontend consumes **FastAPI** responses instead of running PySpark, training models or querying large processing datasets itself.
 
 **Live application:** https://george-nyc-taxi-analytics.streamlit.app/
 
-## UI Flow
+## Use Cases
+
+- Explore taxi demand and trip behaviour across zones and time periods.
+- Review historical model performance and feature importance.
+- Estimate future taxi demand for a selected zone and date/time.
+- Compare future-model validation results and identify the production model.
+- Generate and download a PDF project report from the application.
+
+## Request Flow
 
 ```mermaid
 sequenceDiagram
@@ -12,34 +20,37 @@ sequenceDiagram
     participant UI as Streamlit
     participant API as FastAPI
     participant DB as PostgreSQL
-    User->>UI: Select analysis / zone / future time
-    UI->>API: Request data or prediction
+    User->>UI: Select analysis or forecast input
+    UI->>API: Request data / prediction
     API->>DB: Query published results
     DB-->>API: Analytics / model output
     API-->>UI: JSON response
-    UI-->>User: Charts, metrics and forecast
+    UI-->>User: Charts, metrics or forecast
 ```
 
-The application presents exploratory analytics, historical model evaluation and future-demand forecasting. Model metrics and the production-model label are read dynamically from published results rather than hard-coded into the UI.
-
-## UI Mockup
+## UI Mockup — Future Demand Use Case
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ NYC Yellow Taxi Analytics                                  │
-├───────────────┬──────────────────────────────────────────────┤
-│ Navigation    │ Main view                                    │
-│               │                                              │
-│ • Overview    │  KPI        KPI        KPI                    │
-│ • Analytics   │ ┌────────┐ ┌────────┐ ┌────────┐             │
-│ • Model       │ └────────┘ └────────┘ └────────┘             │
-│ • Forecast    │                                              │
-│               │  ┌────────────────────────────────────────┐  │
-│ Zone / Date   │  │          Interactive chart             │  │
-│ controls      │  └────────────────────────────────────────┘  │
-│               │                                              │
-│               │  Model metrics / forecast result             │
-└───────────────┴──────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│ NYC Yellow Taxi Analytics                         [PDF Report] │
+├─────────────────┬──────────────────────────────────────────────┤
+│ Navigation      │ Future Demand Forecast                       │
+│                 │                                              │
+│ • Overview      │ Taxi zone      [ Select zone ▼ ]             │
+│ • Analytics     │ Forecast date  [ Select date ]               │
+│ • Model         │ Forecast time  [ Select time ]   [Forecast]  │
+│ • Forecast      │                                              │
+│                 │ ┌──────────────────────────────────────────┐ │
+│                 │ │           Predicted demand             │ │
+│                 │ │          Forecast method               │ │
+│                 │ └──────────────────────────────────────────┘ │
+│                 │                                              │
+│                 │ Model Validation                             │
+│                 │ ┌──────────────────────────────────────────┐ │
+│                 │ │ Model       MAE       RMSE      Status  │ │
+│                 │ │ ...         ...       ...       ...     │ │
+│                 │ └──────────────────────────────────────────┘ │
+└─────────────────┴──────────────────────────────────────────────┘
 ```
 
-The mockup documents the UI structure rather than a specific data snapshot, so it remains valid as monthly data changes.
+The forecast page demonstrates the main operational use case: a user chooses a future place and time, receives the stored production forecast through FastAPI, and can inspect how the candidate models were validated. The PDF report provides a portable summary of the wider project analysis.

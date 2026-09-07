@@ -4,15 +4,35 @@ An end-to-end analytics project for NYC Yellow Taxi demand: automated TLC ingest
 
 **Live app:** https://george-nyc-taxi-analytics.streamlit.app/
 
-## Project Flow
+## End-to-End Process
 
-```text
-TLC monthly data → PySpark → PostgreSQL / Supabase → ML → FastAPI → Streamlit
-                         ↑
-                    Airflow orchestration
+```mermaid
+flowchart LR
+    TLC[NYC TLC monthly Parquet] --> ING[Availability check & ingestion]
+    ING --> SPARK[PySpark cleaning & aggregation]
+    SPARK --> DATA[(PostgreSQL / Supabase)]
+    SPARK --> HIST[Historical model evaluation]
+    SPARK --> FUT[Future model backtesting]
+    HIST --> DATA
+    FUT --> SEL[Automatic model selection]
+    SEL --> DATA
+    DATA --> API[FastAPI]
+    API --> UI[Streamlit]
+    UI --> USER[Analytics, forecasts & PDF report]
+    AIR[Airflow] -. orchestrates .-> ING
+    AIR -. triggers .-> HIST
+    AIR -. triggers .-> FUT
+    GH[GitHub Actions] -. tests code changes .-> API
 ```
 
-The pipeline is state-driven: newly published TLC data can be ingested and model outputs refreshed without changing the documentation.
+1. Airflow checks whether the next TLC monthly file is available.
+2. New trip data is ingested, cleaned and aggregated with PySpark.
+3. Analytical tables are persisted to PostgreSQL and the hosted Supabase database.
+4. Historical demand modelling evaluates prediction quality using observed-history features.
+5. Future forecasting compares forecast-safe candidate models with rolling temporal backtests and selects the best validated model automatically.
+6. Published analytics, metrics and forecasts are served by FastAPI.
+7. Streamlit provides interactive analysis, future-demand forecasting and a downloadable project report.
+8. GitHub Actions runs automated tests whenever application code changes.
 
 ## Local Execution
 
@@ -38,13 +58,11 @@ streamlit run frontend/Home.py
 pytest -q
 ```
 
-GitHub Actions runs the focused pytest suite automatically on pushes and pull requests to `main`.
-
 ## Documentation
 
 - [Backend](docs/backend.md) — data model, processing, ML and API
 - [Orchestration](docs/orchestration.md) — Airflow update workflow
-- [Frontend](docs/frontend.md) — Streamlit UI and mockup
+- [Frontend](docs/frontend.md) — use cases, Streamlit UI and report download
 - [Deployment](docs/deployment.md) — hosted architecture and CI
 
 ## Tech Stack

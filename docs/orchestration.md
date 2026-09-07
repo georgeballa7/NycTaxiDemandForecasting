@@ -1,17 +1,17 @@
 # Orchestration
 
-Airflow controls when the backend workflows run; processing and modelling logic remain in backend modules.
+**Apache Airflow** schedules and coordinates the recurring update while keeping processing logic inside reusable backend modules. **Docker Compose** provides a reproducible local Airflow runtime.
 
-## Monthly Update
+## Update Workflow
 
 ```mermaid
 flowchart TD
-    A[Scheduled DAG run] --> B[Read latest successful dataset month]
+    A[Scheduled Airflow run] --> B[Read latest successful dataset month]
     B --> C[Check next TLC month]
     C --> D{Available?}
     D -- No --> E[Successful no-op]
-    D -- Yes --> F[Ingest & process]
-    F --> G[Retrain & evaluate models]
+    D -- Yes --> F[Ingest & process with PySpark]
+    F --> G[Run ML pipeline]
     G --> H[Publish database outputs]
     H --> I[Slack success]
     F -. failure .-> J[Slack failure]
@@ -19,12 +19,12 @@ flowchart TD
     H -. failure .-> J
 ```
 
-The workflow is state-driven, not hard-coded to a calendar month. It processes at most one new month per run. With `catchup=False`, missed scheduler runs do not create a backlog; a later run continues from the persisted pipeline state.
+The DAG uses persisted pipeline state to determine the next dataset to check and processes at most one new month per run. Retraining occurs only after successful ingestion. If no new TLC file is available, the run finishes successfully without unnecessary ML work.
 
-Retraining happens only after successful new-data ingestion. If TLC has not published the next month, the DAG succeeds without retraining or a Slack success message.
+Slack provides operational feedback for successful refreshes and failures; a normal no-op does not generate a success message.
 
-## Runtime
+## Airflow Runtime
 
-Local orchestration uses Docker Compose with the Airflow API server, scheduler, DAG processor and Airflow metadata PostgreSQL database. LocalExecutor is used, so no Celery worker is required.
+Docker Compose runs the Airflow API server, scheduler, DAG processor and metadata PostgreSQL database. **LocalExecutor** executes tasks locally without a Celery worker. `catchup=False` prevents scheduler downtime from generating a backlog of missed DAG runs.
 
-The DAG calls the same backend workflows available for manual execution, avoiding a second implementation of the pipeline.
+The DAG invokes the same Python workflows used for manual execution, so orchestration does not duplicate ingestion or ML logic.
