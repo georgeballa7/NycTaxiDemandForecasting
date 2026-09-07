@@ -32,7 +32,7 @@ sequenceDiagram
 
 ```text
 ┌────────────────────────────────────────────────────────────────┐
-│ NYC Yellow Taxi Analytics                         [PDF Report] │
+│ NYC Yellow Taxi Analytics                                     │
 ├─────────────────┬──────────────────────────────────────────────┤
 │ Navigation      │ Future Demand Forecast                       │
 │                 │                                              │
@@ -41,7 +41,7 @@ sequenceDiagram
 │ • Model         │ Forecast time  [ Select time ]   [Forecast]  │
 │ • Forecast      │                                              │
 │                 │ ┌──────────────────────────────────────────┐ │
-│                 │ │           Predicted demand             │ │
+│ [PDF Report]    │ │           Predicted demand             │ │
 │                 │ │          Forecast method               │ │
 │                 │ └──────────────────────────────────────────┘ │
 │                 │                                              │
