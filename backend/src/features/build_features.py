@@ -7,6 +7,7 @@ from pyspark.sql import Window
 
 
 def add_time_features(df: DataFrame) -> DataFrame:
+    """Ergänzt kalenderbasierte und zyklische Zeitmerkmale."""
     return (
         df
         .withColumn("hour", F.hour("pickup_hour"))
@@ -36,6 +37,7 @@ def add_time_features(df: DataFrame) -> DataFrame:
 
 
 def add_lag_features(df: DataFrame) -> DataFrame:
+    """Ergänzt verzögerte Nachfragewerte je Taxi-Zone."""
 
     zone_window = (
         Window
@@ -52,6 +54,7 @@ def add_lag_features(df: DataFrame) -> DataFrame:
 
 
 def add_rolling_features(df: DataFrame) -> DataFrame:
+    """Berechnet rollierende Nachfragekennzahlen je Taxi-Zone."""
 
     zone_window = (
         Window
