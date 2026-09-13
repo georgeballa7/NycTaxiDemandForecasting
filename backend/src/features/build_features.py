@@ -7,7 +7,22 @@ from pyspark.sql import Window
 
 
 def add_time_features(df: DataFrame) -> DataFrame:
-    """Ergänzt kalenderbasierte und zyklische Zeitmerkmale."""
+    """
+    Ergänzt Zeit- und Zyklusmerkmale für die Nachfrageprognose.
+
+    Aus ``pickup_hour`` werden Stunde, Wochentag und Kalendertag abgeleitet.
+    Zusätzlich wird markiert, ob der Zeitpunkt auf ein Wochenende fällt. Stunde
+    und Wochentag werden außerdem mit Sinus- und Kosinuswerten zyklisch kodiert,
+    damit z. B. 23 Uhr und 0 Uhr im Modell als zeitlich benachbart behandelt werden.
+
+    Args:
+        df: PySpark-DataFrame mit der Spalte ``pickup_hour``.
+
+    Returns:
+        DataFrame mit den zusätzlichen Spalten ``hour``, ``day_of_week``,
+        ``day_of_month``, ``is_weekend``, ``hour_sin``, ``hour_cos``,
+        ``dow_sin`` und ``dow_cos``.
+    """
     return (
         df
         .withColumn("hour", F.hour("pickup_hour"))
@@ -37,7 +52,21 @@ def add_time_features(df: DataFrame) -> DataFrame:
 
 
 def add_lag_features(df: DataFrame) -> DataFrame:
-    """Ergänzt verzögerte Nachfragewerte je Taxi-Zone."""
+    """
+    Ergänzt verzögerte Nachfragewerte je Taxi-Zone.
+
+    Die Daten werden pro ``LocationID`` chronologisch nach ``pickup_hour``
+    betrachtet. Für jede Zeile werden die Nachfragewerte von einer Stunde,
+    24 Stunden und 168 Stunden zuvor als zusätzliche Merkmale übernommen.
+
+    Args:
+        df: PySpark-DataFrame mit ``LocationID``, ``pickup_hour`` und ``demand``.
+
+    Returns:
+        DataFrame mit den zusätzlichen Spalten ``lag_1h``, ``lag_24h`` und
+        ``lag_168h``. Fehlt für einen Zeitpunkt ausreichend Historie, bleibt der
+        jeweilige Lag-Wert null.
+    """
 
     zone_window = (
         Window
@@ -54,7 +83,22 @@ def add_lag_features(df: DataFrame) -> DataFrame:
 
 
 def add_rolling_features(df: DataFrame) -> DataFrame:
-    """Berechnet rollierende Nachfragekennzahlen je Taxi-Zone."""
+    """
+    Berechnet rollierende Nachfragekennzahlen je Taxi-Zone.
+
+    Für jede ``LocationID`` werden ausschließlich vorherige Beobachtungen
+    verwendet: die letzten 24 bzw. 168 Zeilen vor dem aktuellen Zeitpunkt.
+    Neben dem Mittelwert wird jeweils gezählt, wie viele historische
+    Nachfragewerte tatsächlich im Fenster vorhanden sind.
+
+    Args:
+        df: PySpark-DataFrame mit ``LocationID``, ``pickup_hour`` und ``demand``.
+
+    Returns:
+        DataFrame mit ``rolling_mean_24h``, ``history_count_24h``,
+        ``rolling_mean_168h`` und ``history_count_168h``. Der aktuelle
+        Nachfragewert selbst wird nicht in die rollierenden Fenster einbezogen.
+    """
 
     zone_window = (
         Window
