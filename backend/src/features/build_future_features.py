@@ -28,6 +28,7 @@ FUTURE_FEATURE_COLUMNS = CALENDAR_FEATURE_COLUMNS + PROFILE_FEATURE_COLUMNS
 
 
 def _add_calendar_columns(df: DataFrame) -> DataFrame:
+    """Ergänzt zyklische Kalendermerkmale auf Basis vorhandener Zeitspalten."""
     return (
         df
         .withColumn(
@@ -62,7 +63,7 @@ def _add_calendar_columns(df: DataFrame) -> DataFrame:
 
 
 def add_future_calendar_features(df: DataFrame) -> DataFrame:
-    """Add calendar features that are known for every future timestamp."""
+    """Ergänzt Kalendermerkmale, die für zukünftige Zeitpunkte bereits bekannt sind."""
     return _add_calendar_columns(
         df
         .withColumn("hour", F.hour("pickup_hour"))
@@ -72,13 +73,7 @@ def add_future_calendar_features(df: DataFrame) -> DataFrame:
 
 
 def add_historical_profile_features(df: DataFrame) -> DataFrame:
-    """
-    Build leakage-safe historical demand profiles for model backtesting.
-
-    Every target month receives aggregate features calculated strictly from
-    earlier calendar months. The features therefore remain available at
-    prediction time and do not use demand observed in the target month.
-    """
+    """Erzeugt leakage-sichere historische Nachfrageprofile für das Backtesting."""
     data = (
         add_future_calendar_features(df)
         .withColumn("calendar_month", F.trunc(F.col("pickup_hour"), "month"))
@@ -178,13 +173,7 @@ def add_historical_profile_features(df: DataFrame) -> DataFrame:
 
 
 def build_future_scoring_grid(df: DataFrame) -> DataFrame:
-    """
-    Create a reusable future scoring grid from all observed history.
-
-    The grid covers every observed zone for every month, weekday and hour.
-    Historical aggregates use all data available through the current training
-    cutoff, which is exactly what will be available for true future inference.
-    """
+    """Erstellt aus der Historie ein wiederverwendbares Raster für zukünftige Prognosen."""
     data = add_future_calendar_features(df)
     spark = df.sparkSession
 
