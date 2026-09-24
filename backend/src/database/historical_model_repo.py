@@ -1,3 +1,6 @@
+import csv
+import io
+
 from sqlalchemy import text
 
 from backend.src.database.connection import engine
@@ -165,6 +168,103 @@ def replace_historical_model_data(
                     )
                     while next_progress <= rows_written:
                         next_progress += progress_interval
+
+
+def replace_historical_model_data_bulk(
+    metrics,
+    feature_importance,
+    predictions,
+    trained_through,
+    generated_at,
+    db_engine,
+) -> None:
+    """Ersetzt den historischen Serving-Snapshot per PostgreSQL-COPY.
+
+    Die Vorhersagen werden per COPY in eine temporäre Tabelle derselben
+    Verbindung geladen. Danach werden Metriken, Feature Importances und
+    Vorhersagen innerhalb derselben Transaktion atomar ersetzt.
+
+    Args:
+        metrics: DataFrame mit model, mae und rmse.
+        feature_importance: DataFrame mit feature und importance.
+        predictions: DataFrame mit LocationID, pickup_hour, actual_demand und
+            predicted_demand.
+        trained_through: Letzter historischer Zeitstempel des Snapshots.
+        generated_at: Erzeugungszeitpunkt des Snapshots.
+        db_engine: SQLAlchemy-Engine der PostgreSQL-Zieldatenbank.
+
+    Returns:
+        None.
+    """
+    ensure_historical_model_tables(db_engine)
+
+    metric_rows = [
+        {"model": str(row.model), "mae": float(row.mae), "rmse": float(row.rmse),
+         "trained_through": trained_through, "generated_at": generated_at}
+        for row in metrics.itertuples(index=False)
+    ]
+    importance_rows = [
+        {"feature": str(row.feature), "importance": float(row.importance),
+         "trained_through": trained_through, "generated_at": generated_at}
+        for row in feature_importance.itertuples(index=False)
+    ]
+
+    copy_buffer = io.StringIO()
+    writer = csv.writer(copy_buffer, lineterminator="\n")
+    for row in predictions.itertuples(index=False):
+        writer.writerow((
+            int(row.LocationID), row.pickup_hour, float(row.actual_demand),
+            float(row.predicted_demand), trained_through, generated_at,
+        ))
+    copy_buffer.seek(0)
+
+    with db_engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TEMP TABLE historical_model_prediction_stage (
+                LIKE taxi_analytics.historical_model_prediction
+                INCLUDING DEFAULTS INCLUDING CONSTRAINTS
+            ) ON COMMIT DROP
+        """))
+
+        with connection.connection.cursor() as cursor:
+            cursor.copy_expert("""
+                COPY historical_model_prediction_stage (
+                    location_id, pickup_hour, actual_demand, predicted_demand,
+                    trained_through, generated_at
+                ) FROM STDIN WITH (FORMAT CSV)
+            """, copy_buffer)
+
+        connection.execute(text("DELETE FROM taxi_analytics.historical_model_prediction"))
+        connection.execute(text("DELETE FROM taxi_analytics.historical_feature_importance"))
+        connection.execute(text("DELETE FROM taxi_analytics.historical_model_metric"))
+
+        if metric_rows:
+            connection.execute(text("""
+                INSERT INTO taxi_analytics.historical_model_metric (
+                    model, mae, rmse, trained_through, generated_at
+                ) VALUES (
+                    :model, :mae, :rmse, :trained_through, :generated_at
+                )
+            """), metric_rows)
+
+        if importance_rows:
+            connection.execute(text("""
+                INSERT INTO taxi_analytics.historical_feature_importance (
+                    feature, importance, trained_through, generated_at
+                ) VALUES (
+                    :feature, :importance, :trained_through, :generated_at
+                )
+            """), importance_rows)
+
+        connection.execute(text("""
+            INSERT INTO taxi_analytics.historical_model_prediction (
+                location_id, pickup_hour, actual_demand, predicted_demand,
+                trained_through, generated_at
+            )
+            SELECT location_id, pickup_hour, actual_demand, predicted_demand,
+                   trained_through, generated_at
+            FROM historical_model_prediction_stage
+        """))
 
 
 def get_historical_model_metrics():
