@@ -68,6 +68,12 @@ def publish_historical_model_data():
         predictions_pd = app_predictions.toPandas()
         generated_at = datetime.now(timezone.utc)
 
+        # Spark wird nach der Materialisierung nicht mehr benötigt. Die Session
+        # wird vor den potenziell langsamen SQL-Uploads beendet, damit während
+        # des Publishings keine unnötigen Spark-Ressourcen aktiv bleiben.
+        spark.stop()
+        spark = None
+
         print("Publishing historical model snapshot to local PostgreSQL...")
         replace_historical_model_data(
             metrics,
@@ -98,7 +104,8 @@ def publish_historical_model_data():
         print(f"Trained through: {trained_through}")
         print(f"Prediction rows: {len(predictions_pd):,}")
     finally:
-        spark.stop()
+        if spark is not None:
+            spark.stop()
 
 
 if __name__ == "__main__":
