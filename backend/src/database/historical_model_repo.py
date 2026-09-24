@@ -149,11 +149,22 @@ def replace_historical_model_data(
             # many SQL rows and large executemany calls can exhaust a pooled
             # connection or hit remote transaction/network limits.
             batch_size = 500
-            for start in range(0, len(prediction_rows), batch_size):
-                connection.execute(
-                    statement,
-                    prediction_rows[start:start + batch_size],
-                )
+            total_rows = len(prediction_rows)
+            progress_interval = 10_000
+            next_progress = progress_interval
+
+            for start in range(0, total_rows, batch_size):
+                batch = prediction_rows[start:start + batch_size]
+                connection.execute(statement, batch)
+
+                rows_written = min(start + len(batch), total_rows)
+                if rows_written >= next_progress or rows_written == total_rows:
+                    print(
+                        "Historical prediction publish progress: "
+                        f"{rows_written:,}/{total_rows:,} rows"
+                    )
+                    while next_progress <= rows_written:
+                        next_progress += progress_interval
 
 
 def get_historical_model_metrics():
