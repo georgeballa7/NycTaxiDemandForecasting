@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from time import sleep
+
+from sqlalchemy.exc import OperationalError
 
 import pandas as pd
 from pyspark.sql import functions as F
@@ -85,15 +88,32 @@ def publish_historical_model_data():
         )
 
         if supabase_engine is not None:
-            print("Publishing historical model snapshot to Supabase PostgreSQL...")
-            replace_historical_model_data(
-                metrics,
-                feature_importance,
-                predictions_pd,
-                trained_through,
-                generated_at,
-                supabase_engine,
-            )
+            max_attempts = 3
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    print(
+                        "Publishing historical model snapshot to Supabase PostgreSQL "
+                        f"(attempt {attempt}/{max_attempts})..."
+                    )
+                    replace_historical_model_data(
+                        metrics,
+                        feature_importance,
+                        predictions_pd,
+                        trained_through,
+                        generated_at,
+                        supabase_engine,
+                    )
+                    break
+                except OperationalError:
+                    supabase_engine.dispose()
+                    if attempt == max_attempts:
+                        raise
+                    wait_seconds = 5
+                    print(
+                        "Supabase connection failed during historical snapshot "
+                        f"publishing. Retrying in {wait_seconds} seconds..."
+                    )
+                    sleep(wait_seconds)
         else:
             print(
                 "SUPABASE_DATABASE_URL is not configured; "
