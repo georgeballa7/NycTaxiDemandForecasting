@@ -10,6 +10,7 @@ from pyspark.sql import functions as F
 from backend.src.database.connection import engine, supabase_engine
 from backend.src.database.historical_model_repo import (
     replace_historical_model_data,
+    replace_historical_model_data_bulk,
 )
 from backend.src.ingestion.spark_session import create_spark_session
 from backend.src.ingestion.load_zone_lookup import load_zone_lookup
@@ -95,7 +96,7 @@ def publish_historical_model_data():
                         "Publishing historical model snapshot to Supabase PostgreSQL "
                         f"(attempt {attempt}/{max_attempts})..."
                     )
-                    replace_historical_model_data(
+                    replace_historical_model_data_bulk(
                         metrics,
                         feature_importance,
                         predictions_pd,
