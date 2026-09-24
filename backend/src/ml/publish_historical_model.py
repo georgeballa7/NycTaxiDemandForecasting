@@ -79,7 +79,7 @@ def publish_historical_model_data():
         spark = None
 
         print("Publishing historical model snapshot to local PostgreSQL...")
-        replace_historical_model_data(
+        replace_historical_model_data_bulk(
             metrics,
             feature_importance,
             predictions_pd,
