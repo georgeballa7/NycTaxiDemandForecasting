@@ -87,19 +87,30 @@ def replace_future_forecast_data(
     metadata: dict,
     db_engine,
 ) -> None:
-    """Ersetzt einen vollständigen Future-Forecast-Snapshot atomar.
+    """Atomically replace the complete future-forecast serving snapshot.
 
-    Parameter:
-        profiles: Profilwerte je LocationID, Monat, Wochentag und Stunde.
-        metrics: Backtest-Kennzahlen der verglichenen Forecast-Modelle.
-        metadata: Metadaten des Snapshots einschließlich Produktionsmodell,
-            Trainingsstand, Erstellungszeitpunkt und Anzahl der Profilzeilen.
-        db_engine: SQLAlchemy-Engine der PostgreSQL-Zieldatenbank.
+    Parameters
+    ----------
+    profiles : pd.DataFrame
+        Profile rows by LocationID, month, weekday and hour.
+    metrics : pd.DataFrame
+        Backtest metrics for all compared forecast models.
+    metadata : dict
+        Snapshot metadata including production model, training cutoff,
+        generation timestamp, profile dimensions and row count.
+    db_engine
+        SQLAlchemy engine for the target PostgreSQL database.
 
-    Die Profilzeilen werden per PostgreSQL COPY in eine temporäre Staging-Tabelle
-    geladen. Erst danach werden Profil, Modellmetriken und Metadaten innerhalb
-    derselben Transaktion ersetzt. Bei einem Fehler wird die gesamte Transaktion
-    zurückgerollt, sodass der vorherige Serving-Snapshot erhalten bleibt.
+    Returns
+    -------
+    None
+        Profile, metric and metadata tables are replaced in one transaction.
+
+    Notes
+    -----
+    Profiles are bulk-loaded with PostgreSQL COPY into a temporary staging
+    table. Production tables are replaced only inside the same transaction,
+    so a failure rolls back and preserves the previous serving snapshot.
     """
     ensure_future_forecast_tables(db_engine)
 
