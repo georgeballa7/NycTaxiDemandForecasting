@@ -25,6 +25,25 @@ HISTORY_HOURS = 168
 
 
 def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    """Return the half-open datetime interval for a calendar month.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year.
+    month : int
+        Calendar month from 1 through 12.
+
+    Returns
+    -------
+    tuple[datetime, datetime]
+        Start of the month and start of the following month.
+
+    Raises
+    ------
+    ValueError
+        If month is outside 1-12.
+    """
     if not 1 <= month <= 12:
         raise ValueError(
             f"month must be between 1 and 12. Received: {month}"
@@ -45,10 +64,40 @@ def _monthly_path(
     year: int,
     month: int,
 ) -> Path:
+    """Build the partition directory for a processed dataset month.
+
+    Parameters
+    ----------
+    root : Path
+        Root directory of the partitioned dataset.
+    year : int
+        Partition year.
+    month : int
+        Partition month.
+
+    Returns
+    -------
+    Path
+        Path in year=YYYY/month=MM layout.
+    """
     return root / f"year={year}" / f"month={month:02d}"
 
 
 def _previous_month(year: int, month: int) -> tuple[int, int]:
+    """Return the calendar month immediately preceding the supplied month.
+
+    Parameters
+    ----------
+    year : int
+        Current calendar year.
+    month : int
+        Current calendar month.
+
+    Returns
+    -------
+    tuple[int, int]
+        Previous year and month, including January-to-December rollover.
+    """
     if month == 1:
         return year - 1, 12
     return year, month - 1
@@ -58,6 +107,35 @@ def build_dataset(
     year: int | None = None,
     month: int | None = None,
 ):
+    """Build hourly demand and model features from raw TLC trip data.
+
+    Parameters
+    ----------
+    year : int or None
+        Year for an incremental monthly build; supplied together with month.
+    month : int or None
+        Month for an incremental monthly build; supplied together with year.
+
+    Returns
+    -------
+    SparkSession
+        Active Spark session used by the build. The caller is responsible for
+        stopping it.
+
+    Raises
+    ------
+    ValueError
+        If only one date component is supplied or month is invalid.
+
+    Notes
+    -----
+    The monthly path cleans the target month, aggregates hourly demand,
+    completes the zone-hour grid, and adds time, lag and rolling features.
+    Up to 168 hours from the previous monthly demand partition are included
+    when available so lag/rolling features at the month boundary retain
+    history; only target-month feature rows are persisted. With no year/month,
+    the established January-June 2025 full-refresh workflow is preserved.
+    """
     spark = create_spark_session()
 
     project_root = Path(__file__).resolve().parents[3]
