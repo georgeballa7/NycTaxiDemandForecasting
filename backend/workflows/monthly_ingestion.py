@@ -18,14 +18,17 @@ from backend.workflows.data_pipeline import run_monthly_data_pipeline
 
 
 def _month_date(year: int, month: int) -> date:
+    """Convert a year and month into the first-day date used as pipeline state key."""
     return date(year, month, 1)
 
 
 def _source_filename(year: int, month: int) -> str:
+    """Build the canonical TLC Yellow Taxi Parquet filename for a dataset month."""
     return f"yellow_tripdata_{year}-{month:02d}.parquet"
 
 
 def _state_engines():
+    """Return the database engines on which pipeline state must be recorded."""
     engines = [engine]
     if supabase_engine is not None:
         engines.append(supabase_engine)
@@ -33,11 +36,13 @@ def _state_engines():
 
 
 def _mark_all_running(dataset_month: date, source_file: str) -> None:
+    """Mark the dataset month RUNNING in every configured state database."""
     for db_engine in _state_engines():
         mark_running(db_engine, dataset_month, source_file)
 
 
 def _mark_all_success(dataset_month: date, source_file: str) -> None:
+    """Mark the dataset month SUCCESS in every configured state database."""
     for db_engine in _state_engines():
         mark_success(db_engine, dataset_month, source_file)
 
@@ -47,6 +52,11 @@ def _mark_all_failed(
     source_file: str,
     error_message: str,
 ) -> None:
+    """Mark a dataset month FAILED in every configured state database.
+
+    State-write errors are logged and suppressed so an unavailable secondary
+    database does not hide the original pipeline failure.
+    """
     for db_engine in _state_engines():
         try:
             mark_failed(
@@ -63,7 +73,26 @@ def _mark_all_failed(
 
 
 def process_month(year: int, month: int) -> bool:
-    """Download, process and load exactly one available TLC month."""
+    """Download, process and load exactly one available TLC month.
+
+    Parameters
+    ----------
+    year : int
+        Dataset year.
+    month : int
+        Dataset month.
+
+    Returns
+    -------
+    bool
+        False when TLC has not published the month; True after successful
+        download, processing, database loading and state updates.
+
+    Notes
+    -----
+    RUNNING/SUCCESS/FAILED state is mirrored to all configured state engines.
+    Processing exceptions are recorded as FAILED and then re-raised.
+    """
 
     if not is_month_available(year, month):
         print(
@@ -100,7 +129,18 @@ def process_month(year: int, month: int) -> bool:
 
 
 def run_next_available_month() -> dict:
-    """Process at most one month after the last successful local month."""
+    """Process at most one month after the latest successful local month.
+
+    Returns
+    -------
+    dict
+        Candidate year/month, whether it was processed, and its TLC source URL.
+
+    Notes
+    -----
+    Local PostgreSQL is the authoritative source for choosing the next month.
+    If TLC has not published that month, no data processing is performed.
+    """
 
     last_success = get_last_successful_month(engine)
     year, month = next_month(
@@ -129,7 +169,35 @@ def run_backfill(
     end_year: int | None = None,
     end_month: int | None = None,
 ) -> list[str]:
-    """Sequentially process available months, stopping on failure/unavailable."""
+    """Sequentially backfill available TLC months.
+
+    Parameters
+    ----------
+    start_year : int
+        Earliest year requested for backfill.
+    start_month : int
+        Earliest month requested for backfill.
+    end_year : int or None
+        Optional inclusive final year; supplied with end_month.
+    end_month : int or None
+        Optional inclusive final month; supplied with end_year.
+
+    Returns
+    -------
+    list[str]
+        Successfully processed months formatted as YYYY-MM.
+
+    Raises
+    ------
+    ValueError
+        If only one end-date component is supplied.
+
+    Notes
+    -----
+    Backfill never rewinds before the month following current successful
+    state. Months are processed sequentially and execution stops at the first
+    unavailable month or propagated processing failure.
+    """
 
     if (end_year is None) != (end_month is None):
         raise ValueError(
