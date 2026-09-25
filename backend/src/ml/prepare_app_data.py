@@ -5,7 +5,20 @@ from backend.src.ingestion.load_zone_lookup import load_zone_lookup
 
 
 def prepare_app_data():
-    """Refresh the lightweight taxi-zone artifact used by offline app/EDA tooling."""
+    """Refresh the lightweight taxi-zone artifact used by app/EDA tooling.
+
+    Returns
+    -------
+    None
+        The selected and sorted taxi-zone lookup is written to
+        data/app/zones.parquet.
+
+    Notes
+    -----
+    A dedicated Spark session loads the raw TLC zone lookup, selects the
+    LocationID, Borough, Zone and service_zone fields, converts the small
+    result to Pandas, persists it as Parquet, and always stops Spark.
+    """
     spark = create_spark_session("NYC Taxi Demand - App Data")
 
     try:
