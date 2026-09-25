@@ -4,6 +4,7 @@ from backend.src.database.connection import engine
 
 
 def get_business_summary():
+    """Return aggregate trip, fare, collected-amount, tip and distance business metrics."""
     query = text("""
         SELECT
             SUM(trip_count)::bigint AS total_trips,
@@ -33,6 +34,7 @@ def get_business_summary():
 
 
 def get_revenue_over_time():
+    """Return daily trip and revenue aggregates ordered by pickup date."""
     query = text("""
         SELECT
             pickup_date,
@@ -62,6 +64,7 @@ def get_revenue_over_time():
 
 
 def get_revenue_by_zone(limit: int = 10):
+    """Return pickup zones ranked by fare revenue up to the requested limit."""
     query = text("""
         SELECT
             f.location_id AS "LocationID",
@@ -111,6 +114,7 @@ def get_revenue_by_zone(limit: int = 10):
 
 
 def get_payment_breakdown():
+    """Return trip, revenue, tip and share metrics grouped by payment method."""
     query = text("""
         SELECT
             f.payment_type,
@@ -156,6 +160,7 @@ def get_payment_breakdown():
 
 
 def get_tip_analysis():
+    """Return aggregate recorded tip metrics for credit-card trips only."""
     query = text("""
         SELECT
             ROUND(SUM(tip_amount), 2) AS total_tips,
@@ -186,6 +191,7 @@ def get_tip_analysis():
 
 
 def get_tip_analysis_by_zone(limit: int = 10):
+    """Return credit-card tip metrics by pickup zone, ranked by total tips."""
     query = text("""
         SELECT
             f.location_id AS "LocationID",
@@ -239,6 +245,7 @@ def get_tip_analysis_by_zone(limit: int = 10):
 
 
 def get_trip_distance_analysis():
+    """Return trip economics grouped into ordered distance bands."""
     query = text("""
         SELECT
             CASE
