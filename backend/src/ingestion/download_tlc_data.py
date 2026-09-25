@@ -12,7 +12,36 @@ def download_yellow_taxi_month(
     month: int,
     raw_data_path: Path = RAW_DATA_DIR,
 ) -> Path:
-    """Download one NYC TLC Yellow Taxi monthly Parquet file atomically."""
+    """Download one monthly NYC TLC Yellow Taxi Parquet file.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year of the requested TLC dataset.
+    month : int
+        Calendar month from 1 through 12.
+    raw_data_path : Path
+        Directory in which raw TLC files are stored.
+
+    Returns
+    -------
+    Path
+        Path to the existing or newly downloaded Parquet file.
+
+    Raises
+    ------
+    ValueError
+        If month is outside the range 1-12.
+    FileNotFoundError
+        If TLC returns HTTP 404 for the requested month.
+    RuntimeError
+        If the response is unsuccessful or the downloaded file is empty.
+
+    Notes
+    -----
+    The download is written to a temporary .part file and moved into place
+    only after successful completion. Existing non-empty files are reused.
+    """
 
     if not 1 <= month <= 12:
         raise ValueError(
