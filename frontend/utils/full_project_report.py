@@ -25,14 +25,17 @@ REPORT_TITLE = "NYC Taxi Demand Forecasting and Business Analytics"
 
 
 def _money(value):
+    """Format a numeric value as US-dollar currency with two decimal places."""
     return f"${value:,.2f}"
 
 
 def _money_millions(value):
+    """Format a numeric dollar value in millions with one decimal place."""
     return f"${value / 1_000_000:.1f}M"
 
 
 def _table(rows, widths=None):
+    """Build a consistently styled ReportLab table for the project report."""
     table = Table(rows, colWidths=widths, repeatRows=1, hAlign="LEFT")
     table.setStyle(
         TableStyle(
@@ -53,6 +56,7 @@ def _table(rows, widths=None):
 
 
 def _footer(canvas, doc):
+    """Draw the report title and current page number in the PDF footer."""
     canvas.saveState()
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(colors.HexColor("#64748B"))
@@ -62,7 +66,19 @@ def _footer(canvas, doc):
 
 
 def generate_full_project_report():
-    """Build a current user-facing PDF from API-backed production analytics."""
+    """Build the current user-facing PDF report from production API analytics.
+
+    Returns
+    -------
+    bytes
+        Complete in-memory PDF document.
+
+    Notes
+    -----
+    The function retrieves current demand, model and business metrics from the
+    API, formats the report with ReportLab tables and narrative sections, adds
+    page footers, and returns the generated PDF bytes without writing a file.
+    """
     data_range = get_demand_date_range()
     historical_metrics = get_metrics()
     future_metrics = sorted(
