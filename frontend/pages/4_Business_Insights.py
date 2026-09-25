@@ -31,6 +31,7 @@ st.caption("Revenue, payment behavior and recorded credit-card tip patterns acro
 
 @st.cache_data(ttl=300)
 def load_business_data():
+    """Load and cache all API datasets required by the Business Insights page."""
     return (
         get_business_summary(),
         get_revenue_over_time(),
