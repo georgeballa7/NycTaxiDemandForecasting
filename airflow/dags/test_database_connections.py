@@ -17,9 +17,11 @@ from backend.src.config.settings import (
     tags=["test", "database"],
 )
 def test_database_connections():
+    """Define a manual DAG that tests local and Supabase PostgreSQL connectivity."""
 
     @task
     def check_local_database():
+    """Connect to local PostgreSQL and print the current database name."""
         engine = create_engine(DATABASE_URL)
 
         with engine.connect() as connection:
@@ -32,6 +34,7 @@ def test_database_connections():
 
     @task
     def check_supabase_database():
+    """Connect to Supabase PostgreSQL and print the current database name."""
         if not SUPABASE_DATABASE_URL:
             raise RuntimeError(
                 "SUPABASE_DATABASE_URL is not set."
