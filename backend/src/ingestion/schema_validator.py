@@ -113,14 +113,30 @@ EXPECTED_TYPE_GROUPS = {
 def validate_trip_schema(
     trips: DataFrame,
 ) -> dict:
-    """
-    Validate the raw NYC Yellow Taxi schema.
+    """Validate the raw NYC Yellow Taxi schema used by the pipeline.
 
-    Rules:
-    - Missing required columns stop the pipeline.
-    - Incompatible types on critical columns stop the pipeline.
-    - New additional TLC columns are reported but do not stop processing.
-    - Missing known optional columns are reported but do not stop processing.
+    Parameters
+    ----------
+    trips : DataFrame
+        Raw Spark DataFrame loaded from a TLC Yellow Taxi Parquet file.
+
+    Returns
+    -------
+    dict
+        Validation summary with column count, new columns, missing optional
+        columns, and empty error collections when validation succeeds.
+
+    Raises
+    ------
+    ValueError
+        If one or more required pipeline columns are missing.
+    TypeError
+        If a critical column has an incompatible Spark data type.
+
+    Notes
+    -----
+    New TLC columns and missing known optional columns are logged without
+    failing the pipeline. Required-column and critical-type changes fail fast.
     """
 
     actual_columns = set(trips.columns)
