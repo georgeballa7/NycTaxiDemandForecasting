@@ -13,7 +13,17 @@ from backend.src.processing.prepare_eda_data import prepare_eda_data
 
 
 def reset_analytics_schema():
-    """Legacy full-refresh helper. Never used by the monthly pipeline."""
+    """Truncate analytics facts and dimensions for the legacy full refresh.
+
+    Returns
+    -------
+    None
+        Target analytics tables are truncated in one local transaction.
+
+    Notes
+    -----
+    The incremental monthly pipeline does not call this helper.
+    """
     with engine.begin() as connection:
         connection.execute(
             text(
@@ -31,7 +41,19 @@ def reset_analytics_schema():
 
 
 def run_data_pipeline():
-    """Preserve the established full-refresh workflow."""
+    """Run the established full-refresh data workflow.
+
+    Returns
+    -------
+    None
+        Processed datasets and local PostgreSQL analytics tables are rebuilt.
+
+    Notes
+    -----
+    The workflow builds demand/features, business trips and EDA artifacts,
+    truncates the local analytics schema, then reloads demand and business
+    tables. It is separate from the incremental monthly path.
+    """
     spark = build_dataset()
     spark.stop()
     build_business_trips()
@@ -44,6 +66,17 @@ def run_data_pipeline():
 
 
 def _load_month_into_database(year: int, month: int, db_engine) -> None:
+    """Load one prepared month of demand and business data into a database.
+
+    Parameters
+    ----------
+    year : int
+        Dataset year.
+    month : int
+        Dataset month.
+    db_engine
+        SQLAlchemy engine for the target PostgreSQL database.
+    """
     load_demanddata_to_postgres(
         year=year,
         month=month,
@@ -57,7 +90,26 @@ def _load_month_into_database(year: int, month: int, db_engine) -> None:
 
 
 def run_monthly_data_pipeline(year: int, month: int) -> None:
-    """Process and upsert one month without truncating existing analytics."""
+    """Process and upsert one month without truncating existing analytics.
+
+    Parameters
+    ----------
+    year : int
+        Dataset year.
+    month : int
+        Dataset month.
+
+    Returns
+    -------
+    None
+        Monthly demand/features, business and EDA artifacts are built and
+        loaded into local PostgreSQL and Supabase when configured.
+
+    Notes
+    -----
+    Existing months remain untouched because monthly Parquet partitions and
+    database rows are updated idempotently rather than full-refreshed.
+    """
 
     print(f"Starting monthly data pipeline for {year}-{month:02d}...")
 
