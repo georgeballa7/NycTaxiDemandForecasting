@@ -6,11 +6,40 @@ BASE_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data"
 
 
 def build_yellow_taxi_url(year: int, month: int) -> str:
+    """Build the public TLC URL for one Yellow Taxi monthly Parquet file.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year used in the TLC filename.
+    month : int
+        Calendar month used in the TLC filename.
+
+    Returns
+    -------
+    str
+        Fully qualified URL of the requested TLC dataset.
+    """
     filename = f"yellow_tripdata_{year}-{month:02d}.parquet"
     return f"{BASE_URL}/{filename}"
 
 
 def next_month(year: int, month: int) -> tuple[int, int]:
+    """Return the calendar month immediately following the supplied month.
+
+    Parameters
+    ----------
+    year : int
+        Current calendar year.
+    month : int
+        Current calendar month.
+
+    Returns
+    -------
+    tuple[int, int]
+        Year and month of the next calendar month, including year rollover
+        from December to January.
+    """
     if month == 12:
         return year + 1, 1
 
@@ -18,6 +47,34 @@ def next_month(year: int, month: int) -> tuple[int, int]:
 
 
 def is_month_available(year: int, month: int) -> bool:
+    """Check whether a monthly Yellow Taxi file is available from TLC.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year of the dataset to check.
+    month : int
+        Calendar month of the dataset to check.
+
+    Returns
+    -------
+    bool
+        True when the remote file responds successfully, otherwise False for
+        an unavailable 403/404 response.
+
+    Raises
+    ------
+    ConnectionError
+        If the TLC data source cannot be reached.
+    HTTPError
+        For unexpected HTTP failures.
+
+    Notes
+    -----
+    A HEAD request is attempted first. Because the TLC/CDN can reject HEAD
+    with HTTP 403, the function falls back to a one-byte ranged GET before
+    deciding that the file is unavailable.
+    """
     url = build_yellow_taxi_url(year, month)
 
     try:
