@@ -13,6 +13,20 @@ from backend.workflows.monthly_ingestion import run_next_available_month
 
 
 def _post_slack_message(message: str) -> bool:
+    """Send a plain-text message through the configured Slack webhook.
+
+    Parameters
+    ----------
+    message : str
+        Text payload to send.
+
+    Returns
+    -------
+    bool
+        True when Slack accepts the request; False when no webhook is
+        configured or sending fails. Notification failures are logged rather
+        than propagated so they do not mask pipeline state.
+    """
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
 
     if not webhook_url:
@@ -46,6 +60,20 @@ def _post_slack_message(message: str) -> bool:
 
 
 def notify_slack_failure(context):
+    """Build and send an Airflow task-failure notification to Slack.
+
+    Parameters
+    ----------
+    context
+        Airflow failure-callback context. Task/run identifiers, exception,
+        log URL and, when available through XCom, the processed data month are
+        included in the message.
+
+    Returns
+    -------
+    None
+        Notification is attempted as a side effect.
+    """
     task_instance = context.get("task_instance")
     exception = context.get("exception")
 
@@ -110,13 +138,34 @@ def notify_slack_failure(context):
     tags=["nyc-taxi", "ingestion"],
 )
 def nyc_taxi_monthly_ingestion():
+    """Define the scheduled monthly-ingestion and ML-refresh Airflow DAG.
+
+    The DAG checks at most one new TLC month, then exposes independent
+    historical-model and future-forecast branches. ML tasks share the
+    spark_ml_pool so a one-slot pool serializes Spark-heavy work without
+    creating a dependency between the two branches. Slack success reporting
+    runs only after both publishing branches complete.
+    """
 
     @task
     def process_next_month():
+        """Process at most the next available TLC month and return run metadata."""
         return run_next_available_month()
 
     @task(pool="spark_ml_pool")
     def train_historical_model(ingestion_result: dict):
+        """Train the historical model only when ingestion processed new data.
+
+        Parameters
+        ----------
+        ingestion_result : dict
+            Result from process_next_month, including processed, year and month.
+
+        Returns
+        -------
+        dict
+            Ingestion metadata extended with a trained boolean.
+        """
         if not ingestion_result["processed"]:
             print("No new TLC month was processed. Skipping historical training.")
             return {**ingestion_result, "trained": False}
@@ -128,6 +177,18 @@ def nyc_taxi_monthly_ingestion():
 
     @task(pool="spark_ml_pool")
     def publish_historical_model(training_result: dict):
+        """Publish historical serving data only after historical training.
+
+        Parameters
+        ----------
+        training_result : dict
+            Historical training result containing the trained flag.
+
+        Returns
+        -------
+        dict
+            Training metadata extended with a published boolean.
+        """
         if not training_result["trained"]:
             print("Historical training was skipped. Skipping historical publish.")
             return {**training_result, "published": False}
@@ -137,6 +198,18 @@ def nyc_taxi_monthly_ingestion():
 
     @task(pool="spark_ml_pool")
     def train_future_forecast(ingestion_result: dict):
+        """Run future-model selection only when ingestion processed new data.
+
+        Parameters
+        ----------
+        ingestion_result : dict
+            Result from process_next_month, including processed, year and month.
+
+        Returns
+        -------
+        dict
+            Ingestion metadata extended with a trained boolean.
+        """
         if not ingestion_result["processed"]:
             print("No new TLC month was processed. Skipping future forecast training.")
             return {**ingestion_result, "trained": False}
@@ -148,6 +221,18 @@ def nyc_taxi_monthly_ingestion():
 
     @task(pool="spark_ml_pool")
     def publish_future_forecast(training_result: dict):
+        """Publish future forecast profiles only after future-model training.
+
+        Parameters
+        ----------
+        training_result : dict
+            Future training result containing the trained flag.
+
+        Returns
+        -------
+        dict
+            Training metadata extended with a published boolean.
+        """
         if not training_result["trained"]:
             print("Future forecast training was skipped. Skipping future publish.")
             return {**training_result, "published": False}
@@ -160,6 +245,20 @@ def nyc_taxi_monthly_ingestion():
         historical_result: dict,
         future_result: dict,
     ):
+        """Send the successful ML-refresh Slack message when data was published.
+
+        Parameters
+        ----------
+        historical_result : dict
+            Historical branch metadata including published, year and month.
+        future_result : dict
+            Future branch metadata including published status.
+
+        Returns
+        -------
+        None
+            Slack is skipped when neither branch published new data.
+        """
         if not historical_result["published"] and not future_result["published"]:
             print(
                 "No new TLC month was processed. "
