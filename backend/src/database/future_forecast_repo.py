@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 
 import pandas as pd
@@ -72,16 +74,6 @@ BEGIN
 END $$;
 """
 
-_PROFILE_INSERT_SQL = text(
-    """
-    INSERT INTO taxi_analytics.future_demand_profile (
-        location_id, month, day_of_week, hour, predicted_demand
-    ) VALUES (
-        :location_id, :month, :day_of_week, :hour, :predicted_demand
-    )
-    """
-)
-
 
 def ensure_future_forecast_tables(db_engine) -> None:
     with db_engine.begin() as connection:
@@ -95,18 +87,36 @@ def replace_future_forecast_data(
     metadata: dict,
     db_engine,
 ) -> None:
-    """Atomically replace one future-forecast serving snapshot."""
+    """Ersetzt einen vollständigen Future-Forecast-Snapshot atomar.
+
+    Parameter:
+        profiles: Profilwerte je LocationID, Monat, Wochentag und Stunde.
+        metrics: Backtest-Kennzahlen der verglichenen Forecast-Modelle.
+        metadata: Metadaten des Snapshots einschließlich Produktionsmodell,
+            Trainingsstand, Erstellungszeitpunkt und Anzahl der Profilzeilen.
+        db_engine: SQLAlchemy-Engine der PostgreSQL-Zieldatenbank.
+
+    Die Profilzeilen werden per PostgreSQL COPY in eine temporäre Staging-Tabelle
+    geladen. Erst danach werden Profil, Modellmetriken und Metadaten innerhalb
+    derselben Transaktion ersetzt. Bei einem Fehler wird die gesamte Transaktion
+    zurückgerollt, sodass der vorherige Serving-Snapshot erhalten bleibt.
+    """
     ensure_future_forecast_tables(db_engine)
-    profile_rows = [
-        {
-            "location_id": int(row.LocationID),
-            "month": int(row.month),
-            "day_of_week": int(row.day_of_week),
-            "hour": int(row.hour),
-            "predicted_demand": max(0.0, float(row.predicted_demand)),
-        }
-        for row in profiles.itertuples(index=False)
-    ]
+
+    copy_buffer = io.StringIO()
+    writer = csv.writer(copy_buffer, lineterminator="\n")
+    for row in profiles.itertuples(index=False):
+        writer.writerow(
+            [
+                int(row.LocationID),
+                int(row.month),
+                int(row.day_of_week),
+                int(row.hour),
+                max(0.0, float(row.predicted_demand)),
+            ]
+        )
+    copy_buffer.seek(0)
+
     metric_rows = [
         {
             "model": str(row.model),
@@ -118,15 +128,47 @@ def replace_future_forecast_data(
     ]
 
     with db_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TEMP TABLE future_demand_profile_stage (
+                    LIKE taxi_analytics.future_demand_profile
+                    INCLUDING DEFAULTS INCLUDING CONSTRAINTS
+                ) ON COMMIT DROP
+                """
+            )
+        )
+
+        cursor = connection.connection.cursor()
+        try:
+            cursor.copy_expert(
+                """
+                COPY future_demand_profile_stage (
+                    location_id, month, day_of_week, hour, predicted_demand
+                ) FROM STDIN WITH (FORMAT CSV)
+                """,
+                copy_buffer,
+            )
+        finally:
+            cursor.close()
+
         connection.execute(text("DELETE FROM taxi_analytics.future_demand_profile"))
         connection.execute(text("DELETE FROM taxi_analytics.future_model_metric"))
         connection.execute(text("DELETE FROM taxi_analytics.future_forecast_metadata"))
-        batch_size = 500
-        for start in range(0, len(profile_rows), batch_size):
-            connection.execute(
-                _PROFILE_INSERT_SQL,
-                profile_rows[start : start + batch_size],
+
+        connection.execute(
+            text(
+                """
+                INSERT INTO taxi_analytics.future_demand_profile (
+                    location_id, month, day_of_week, hour, predicted_demand
+                )
+                SELECT
+                    location_id, month, day_of_week, hour, predicted_demand
+                FROM future_demand_profile_stage
+                """
             )
+        )
+
         if metric_rows:
             connection.execute(
                 text(
@@ -138,6 +180,7 @@ def replace_future_forecast_data(
                 ),
                 metric_rows,
             )
+
         connection.execute(
             text(
                 """
