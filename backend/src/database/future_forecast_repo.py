@@ -76,6 +76,7 @@ END $$;
 
 
 def ensure_future_forecast_tables(db_engine) -> None:
+    """Create and migrate the PostgreSQL tables required for future-forecast serving."""
     with db_engine.begin() as connection:
         connection.execute(text(_CREATE_TABLES_SQL))
         connection.execute(text(_MIGRATE_PROFILE_SQL))
@@ -215,6 +216,7 @@ def replace_future_forecast_data(
 
 
 def get_future_model_metrics():
+    """Return persisted future-model backtest metrics ordered by model."""
     query = text(
         """
         SELECT model, mae, rmse, backtest_months
@@ -227,6 +229,7 @@ def get_future_model_metrics():
 
 
 def get_future_forecast_metadata():
+    """Return the single current future-forecast metadata record, or None when absent."""
     query = text(
         """
         SELECT production_model, trained_through, generated_at,
