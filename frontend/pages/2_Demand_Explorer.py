@@ -87,6 +87,22 @@ try:
 
     @st.cache_data(ttl=300)
     def load_zone_data(location_id, start_date, end_date):
+        """Load cached hourly, weekday and time-series demand for one zone.
+
+        Parameters
+        ----------
+        location_id
+            TLC taxi-zone identifier.
+        start_date
+            Inclusive first date requested from the API.
+        end_date
+            Inclusive last date requested from the API.
+
+        Returns
+        -------
+        tuple
+            Hourly, weekday and daily demand API result collections.
+        """
         return (
             get_zone_demand_by_hour(location_id, start_date=start_date, end_date=end_date),
             get_zone_demand_by_weekday(location_id, start_date=start_date, end_date=end_date),
