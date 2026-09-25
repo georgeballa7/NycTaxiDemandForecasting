@@ -7,6 +7,7 @@ from backend.src.database.connection import engine
 
 
 def _serialize_rows(result):
+    """Convert SQLAlchemy result rows to JSON-friendly dictionaries, including Decimal-to-float conversion."""
     rows = []
 
     for row in result:
@@ -22,6 +23,7 @@ def _serialize_rows(result):
 
 
 def get_demand_date_range():
+    """Return the minimum and maximum pickup dates available in fact_demand."""
     query = text(
         """
         SELECT
@@ -37,6 +39,7 @@ def get_demand_date_range():
 
 
 def get_zones():
+    """Return all taxi zones ordered by borough and zone name."""
     query = text(
         """
         SELECT
@@ -60,6 +63,7 @@ def get_zone_demand_over_time(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
+    """Return daily total demand for one taxi zone and optional inclusive date range."""
     query = text(
         """
         SELECT
@@ -111,6 +115,7 @@ def get_zone_demand_by_hour(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
+    """Return hourly average and total demand for one taxi zone and optional date range."""
     query = text(
         """
         SELECT
@@ -165,6 +170,7 @@ def get_zone_demand_by_weekday(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
+    """Return weekday average and total demand for one taxi zone and optional date range."""
     query = text(
         """
         SELECT
@@ -217,6 +223,7 @@ def get_zone_demand_by_weekday(
 
 
 def get_demand_by_hour():
+    """Return system-wide average and total demand grouped by hour."""
     query = text(
         """
         SELECT
@@ -237,6 +244,7 @@ def get_demand_by_hour():
 
 
 def get_demand_by_weekday():
+    """Return system-wide average and total demand grouped by weekday."""
     query = text(
         """
         SELECT
@@ -260,6 +268,7 @@ def get_demand_by_weekday():
 
 
 def get_demand_over_time():
+    """Return system-wide total demand grouped by pickup date."""
     query = text(
         """
         SELECT
@@ -277,6 +286,7 @@ def get_demand_over_time():
 
 
 def get_top_zones(limit: int = 10):
+    """Return taxi zones ranked by total demand, limited to the requested count."""
     query = text("""
         SELECT
             z.location_id AS "LocationID",
