@@ -11,12 +11,37 @@ def load_trip_data(
     year: int | None = None,
     month: int | None = None,
 ) -> DataFrame:
-    """
-    Load NYC Yellow Taxi Parquet data.
+    """Load raw NYC Yellow Taxi trip data into Spark.
 
-    When year and month are provided, exactly one monthly file is loaded.
-    When both are omitted, the existing 2025 multi-file behaviour is kept
-    for backwards compatibility with the current full-refresh pipeline.
+    Parameters
+    ----------
+    spark : SparkSession
+        Active Spark session used to read the Parquet data.
+    raw_data_path : Path
+        Directory containing the downloaded TLC Parquet files.
+    year : int or None
+        Year of a single monthly dataset; supplied together with month.
+    month : int or None
+        Month of a single monthly dataset; supplied together with year.
+
+    Returns
+    -------
+    DataFrame
+        Spark DataFrame containing the validated raw trip records.
+
+    Raises
+    ------
+    ValueError
+        If only one date component is supplied or month is outside 1-12.
+    FileNotFoundError
+        If the requested monthly file, or any compatible full-refresh file,
+        cannot be found.
+
+    Notes
+    -----
+    With no year and month, all 2025 monthly files are loaded to preserve the
+    established full-refresh workflow. TLC schema validation runs before the
+    DataFrame is returned.
     """
 
     if (year is None) != (month is None):
