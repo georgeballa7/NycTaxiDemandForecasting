@@ -28,20 +28,18 @@ FUTURE_FEATURE_COLUMNS = CALENDAR_FEATURE_COLUMNS + PROFILE_FEATURE_COLUMNS
 
 
 def _add_calendar_columns(df: DataFrame) -> DataFrame:
-    """
-    Ergänzt aus vorhandenen Kalenderwerten zyklische Zeitmerkmale.
+    """Add weekend and cyclical encodings to existing calendar columns.
 
-    Die Funktion markiert Wochenenden und kodiert Stunde, Wochentag und Monat
-    jeweils mit Sinus und Kosinus. Dadurch bleibt ihre zyklische Struktur für
-    das Machine-Learning-Modell erhalten.
+    Parameters
+    ----------
+    df : DataFrame
+        Spark DataFrame containing hour, day_of_week and month.
 
-    Args:
-        df: PySpark-DataFrame mit den Spalten ``hour``, ``day_of_week`` und
-            ``month``.
-
-    Returns:
-        DataFrame mit ``is_weekend`` sowie den Sinus-/Kosinusmerkmalen für
-        Stunde, Wochentag und Monat.
+    Returns
+    -------
+    DataFrame
+        Rows extended with is_weekend and sine/cosine encodings for hour,
+        weekday and month.
     """
     return (
         df
@@ -77,20 +75,23 @@ def _add_calendar_columns(df: DataFrame) -> DataFrame:
 
 
 def add_future_calendar_features(df: DataFrame) -> DataFrame:
-    """
-    Erzeugt Kalendermerkmale, die auch für zukünftige Zeitpunkte bekannt sind.
+    """Derive forecast-safe calendar features from pickup timestamps.
 
-    Aus ``pickup_hour`` werden Stunde, Wochentag und Monat abgeleitet. Danach
-    ergänzt ``_add_calendar_columns`` Wochenend- und zyklische Merkmale. Die
-    Funktion benötigt keine zukünftigen Nachfragewerte und kann deshalb auch
-    beim echten Forecasting verwendet werden.
+    Parameters
+    ----------
+    df : DataFrame
+        Spark DataFrame containing pickup_hour.
 
-    Args:
-        df: PySpark-DataFrame mit der Zeitstempelspalte ``pickup_hour``.
+    Returns
+    -------
+    DataFrame
+        Rows extended with hour, day_of_week, month, weekend indicator and
+        cyclical calendar encodings.
 
-    Returns:
-        DataFrame mit Stunde, Wochentag, Monat, Wochenendindikator und den
-        zugehörigen zyklischen Sinus-/Kosinusmerkmalen.
+    Notes
+    -----
+    These features depend only on the timestamp, not future demand, so they
+    are safe to construct for genuine future scoring.
     """
     return _add_calendar_columns(
         df
@@ -101,26 +102,25 @@ def add_future_calendar_features(df: DataFrame) -> DataFrame:
 
 
 def add_historical_profile_features(df: DataFrame) -> DataFrame:
-    """
-    Erzeugt leakage-sichere historische Nachfrageprofile für das Backtesting.
+    """Build leakage-safe historical demand profiles for rolling backtests.
 
-    Zunächst werden Kalendermerkmale und der jeweilige Kalendermonat ergänzt.
-    Anschließend entstehen drei historische Durchschnittsprofile: pro Zone,
-    pro Zone und Stunde sowie pro Zone, Wochentag und Stunde. Für einen
-    Zielmonat werden dabei ausschließlich frühere Kalendermonate verwendet.
-    Die berechneten Profile werden anschließend an die ursprünglichen Daten
-    zurückgejoint. So fließt keine Nachfrage aus dem zu prognostizierenden
-    Monat in dessen Features ein.
+    Parameters
+    ----------
+    df : DataFrame
+        Historical Spark DataFrame containing pickup_hour, LocationID and
+        demand.
 
-    Args:
-        df: PySpark-DataFrame mit mindestens ``pickup_hour``, ``LocationID``
-            und ``demand``.
+    Returns
+    -------
+    DataFrame
+        Historical rows with calendar_month and zone-level, zone-hour and
+        zone-weekday-hour mean-demand profile features.
 
-    Returns:
-        DataFrame mit Kalendermerkmalen, ``calendar_month`` und den historischen
-        Profilmerkmalen ``zone_mean_demand``, ``zone_hour_mean`` und
-        ``zone_dow_hour_mean``. Für frühe Monate ohne vorherige Historie können
-        die Profilwerte null sein.
+    Notes
+    -----
+    For each target calendar month, profile aggregates use only earlier
+    calendar months. Early rows without prior history can therefore contain
+    null profile values.
     """
     data = (
         add_future_calendar_features(df)
@@ -221,25 +221,24 @@ def add_historical_profile_features(df: DataFrame) -> DataFrame:
 
 
 def build_future_scoring_grid(df: DataFrame) -> DataFrame:
-    """
-    Erstellt ein wiederverwendbares Merkmalsraster für zukünftige Prognosen.
+    """Build the reusable feature grid used for future demand scoring.
 
-    Aus der gesamten beobachteten Historie werden durchschnittliche
-    Nachfrageprofile pro Zone, pro Zone/Stunde und pro Zone/Wochentag/Stunde
-    berechnet. Danach entsteht per Kreuzprodukt ein Raster aus allen beobachteten
-    Zonen, zwölf Monaten, sieben Wochentagen und 24 Stunden. Das Raster erhält
-    die zyklischen Kalendermerkmale und wird mit den historischen Profilen
-    verbunden. Es kann anschließend zur Bewertung zukünftiger Zeitpunkte durch
-    das trainierte Modell verwendet werden.
+    Parameters
+    ----------
+    df : DataFrame
+        Historical Spark DataFrame containing LocationID, pickup_hour and
+        demand.
 
-    Args:
-        df: Historischer PySpark-DataFrame mit ``LocationID``, ``pickup_hour``
-            und ``demand``.
+    Returns
+    -------
+    DataFrame
+        All observed-zone x 12-month x 7-weekday x 24-hour combinations with
+        calendar encodings and historical demand-profile features.
 
-    Returns:
-        DataFrame mit allen Zone-Monat-Wochentag-Stunde-Kombinationen,
-        Kalendermerkmalen sowie ``zone_mean_demand``, ``zone_hour_mean`` und
-        ``zone_dow_hour_mean`` als historische Profilmerkmale.
+    Notes
+    -----
+    Profile means are calculated from the full observed history because this
+    grid is used after training to score future timestamps beyond that history.
     """
     data = add_future_calendar_features(df)
     spark = df.sparkSession
