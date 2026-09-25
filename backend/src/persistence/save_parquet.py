@@ -7,6 +7,20 @@ def save_parquet(
     df: DataFrame,
     output_path: Path,
 ) -> None:
+    """Overwrite a Parquet dataset at the specified path.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Spark DataFrame to persist.
+    output_path : Path
+        Destination directory for the Parquet dataset.
+
+    Returns
+    -------
+    None
+        Data is written as a side effect.
+    """
     (
         df.write
         .mode("overwrite")
@@ -20,9 +34,31 @@ def save_monthly_parquet(
     year: int,
     month: int,
 ) -> Path:
-    """
-    Persist one dataset month idempotently.
+    """Persist one dataset month idempotently as Parquet.
 
+    Parameters
+    ----------
+    df : DataFrame
+        Spark DataFrame containing the monthly dataset.
+    output_root : Path
+        Root directory of the partitioned dataset.
+    year : int
+        Partition year.
+    month : int
+        Partition month from 1 through 12.
+
+    Returns
+    -------
+    Path
+        Directory written in year=YYYY/month=MM layout.
+
+    Raises
+    ------
+    ValueError
+        If month is outside 1-12.
+
+    Notes
+    -----
     Only the target month directory is overwritten, so rerunning a month
     replaces that month without touching previously processed months.
     """
