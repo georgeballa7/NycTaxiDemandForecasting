@@ -10,6 +10,27 @@ def _monthly_path(
     year: int,
     month: int,
 ) -> Path:
+    """Build and validate the partition path for one EDA dataset month.
+
+    Parameters
+    ----------
+    root : Path
+        Root directory of the partitioned dataset.
+    year : int
+        Partition year.
+    month : int
+        Partition month from 1 through 12.
+
+    Returns
+    -------
+    Path
+        Path in year=YYYY/month=MM layout.
+
+    Raises
+    ------
+    ValueError
+        If month is outside 1-12.
+    """
     if not 1 <= month <= 12:
         raise ValueError(
             f"month must be between 1 and 12. Received: {month}"
@@ -22,11 +43,32 @@ def prepare_eda_data(
     year: int | None = None,
     month: int | None = None,
 ):
-    """
-    Prepare the daily zone-hour demand dataset used to populate PostgreSQL.
+    """Prepare the zone-hour demand artifact used to populate PostgreSQL.
 
-    A monthly run reads and writes only the requested dataset month. Calling
-    the function without year/month preserves the existing full-refresh path.
+    Parameters
+    ----------
+    year : int or None
+        Year for a monthly incremental run; supplied together with month.
+    month : int or None
+        Month for a monthly incremental run; supplied together with year.
+
+    Returns
+    -------
+    None
+        The prepared Pandas Parquet artifact is written to the app-data area
+        and the Spark session is stopped.
+
+    Raises
+    ------
+    ValueError
+        If only one date component is supplied or month is invalid.
+
+    Notes
+    -----
+    Feature demand is joined to taxi-zone attributes, calendar fields and
+    weekday labels are derived, rows are ordered by zone/date/hour, converted
+    to Pandas, and saved as zone_hour_daily.parquet. A monthly run reads and
+    writes only that partition; omitting year/month preserves full refresh.
     """
     spark = create_spark_session()
 
