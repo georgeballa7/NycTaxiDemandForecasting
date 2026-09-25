@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS taxi_analytics.historical_model_prediction (
 
 
 def ensure_historical_model_tables(db_engine) -> None:
+    """Create the PostgreSQL tables required for historical-model serving."""
     with db_engine.begin() as connection:
         connection.execute(text(_CREATE_TABLES_SQL))
 
@@ -279,6 +280,7 @@ def replace_historical_model_data_bulk(
 
 
 def get_historical_model_metrics():
+    """Return persisted historical-model evaluation metrics ordered by model."""
     query = text(
         """
         SELECT model, mae, rmse
@@ -291,6 +293,7 @@ def get_historical_model_metrics():
 
 
 def get_historical_feature_importance():
+    """Return persisted historical feature importances ordered from highest to lowest."""
     query = text(
         """
         SELECT feature, importance
@@ -307,6 +310,7 @@ def get_historical_predictions(
     start_date=None,
     end_date=None,
 ):
+    """Return actual and predicted historical demand for one zone and optional date range."""
     query = text(
         """
         SELECT
