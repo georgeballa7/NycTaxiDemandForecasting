@@ -2,6 +2,7 @@ from backend.src.ml.train_future_model import select_production_model
 
 
 def test_select_production_model_prefers_lowest_mae():
+    """Verify production selection prioritizes the lowest MAE."""
     summary = [
         {"model": "random_forest", "mae": 7.1, "rmse": 18.9},
         {"model": "zone_dow_hour_mean", "mae": 6.4, "rmse": 16.0},
@@ -12,6 +13,7 @@ def test_select_production_model_prefers_lowest_mae():
 
 
 def test_select_production_model_uses_rmse_as_tiebreaker():
+    """Verify RMSE breaks ties when candidate MAE values are equal."""
     summary = [
         {"model": "model_a", "mae": 5.0, "rmse": 12.0},
         {"model": "model_b", "mae": 5.0, "rmse": 11.0},
