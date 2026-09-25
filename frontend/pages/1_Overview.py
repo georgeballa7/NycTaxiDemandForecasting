@@ -30,6 +30,7 @@ st.write(
 
 @st.cache_data(ttl=300)
 def load_overview_data():
+    """Load and cache the API datasets required by the Overview page."""
     return (
         get_zones(),
         get_metrics(),
