@@ -33,6 +33,7 @@ MODEL_LABELS = {
 
 @st.cache_data(ttl=300)
 def load_forecast_reference_data():
+    """Load and cache taxi zones and future-model metrics for forecasting."""
     return get_zones(), get_future_model_metrics()
 
 
