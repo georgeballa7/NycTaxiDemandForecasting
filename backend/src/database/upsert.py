@@ -15,7 +15,37 @@ def upsert_dataframe(
     update_columns: Sequence[str] | None = None,
     chunk_size: int = 1000,
 ) -> None:
-    """Insert a DataFrame into PostgreSQL and update matching primary keys."""
+    """Insert or update Pandas rows in a PostgreSQL table in batches.
+
+    Parameters
+    ----------
+    dataframe : pd.DataFrame
+        Rows to persist; pandas missing values are converted to None.
+    table_name : str
+        Target table name.
+    key_columns : Sequence[str]
+        Columns used as the PostgreSQL conflict key.
+    db_engine : Engine
+        SQLAlchemy engine connected to the target database.
+    schema : str
+        PostgreSQL schema containing the target table.
+    update_columns : Sequence[str] or None
+        Columns updated on conflict. When omitted, all non-key DataFrame
+        columns are updated.
+    chunk_size : int
+        Maximum number of records sent in each database statement.
+
+    Returns
+    -------
+    None
+        Database changes are committed as a side effect. Empty DataFrames
+        return immediately.
+
+    Notes
+    -----
+    When update_columns is empty, conflicts are ignored instead of updated.
+    All batches run inside one SQLAlchemy transaction.
+    """
 
     if dataframe.empty:
         return
