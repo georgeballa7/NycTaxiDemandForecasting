@@ -10,9 +10,11 @@ from datetime import datetime
     tags=["test"],
 )
 def test_airflow_setup():
+    """Define a manual smoke-test DAG that verifies basic Airflow task execution."""
 
     @task
     def say_hello():
+    """Print a confirmation message to verify task execution."""
         print("Airflow is running correctly for the NYC Taxi project.")
 
     say_hello()
