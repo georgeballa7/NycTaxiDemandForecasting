@@ -10,6 +10,25 @@ from backend.src.persistence.save_parquet import save_monthly_parquet
 
 
 def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    """Return the half-open datetime interval for a calendar month.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year.
+    month : int
+        Calendar month from 1 through 12.
+
+    Returns
+    -------
+    tuple[datetime, datetime]
+        Start of the month and start of the following month.
+
+    Raises
+    ------
+    ValueError
+        If month is outside 1-12.
+    """
     if not 1 <= month <= 12:
         raise ValueError(
             f"month must be between 1 and 12. Received: {month}"
@@ -29,6 +48,33 @@ def build_business_trips(
     year: int | None = None,
     month: int | None = None,
 ):
+    """Build the cleaned trip-level dataset used for business analytics.
+
+    Parameters
+    ----------
+    year : int or None
+        Year of a monthly incremental run. Must be supplied with month.
+    month : int or None
+        Month of a monthly incremental run. Must be supplied with year.
+
+    Returns
+    -------
+    None
+        Results are persisted as Parquet and the Spark session is stopped.
+
+    Raises
+    ------
+    ValueError
+        If only one date component is supplied or month is invalid.
+
+    Notes
+    -----
+    The function loads and cleans trips, keeps supported payment types and
+    non-negative fares, derives duration, fare-per-mile and speed metrics,
+    removes extreme speed/fare-per-mile records, adds calendar fields, and
+    persists either one monthly partition or the established full-refresh
+    dataset.
+    """
     spark = create_spark_session()
 
     project_root = Path(__file__).resolve().parents[3]
