@@ -14,6 +14,7 @@ from backend.src.features.build_future_features import (
 
 @pytest.fixture(scope="module")
 def spark():
+    """Provide a module-scoped local Spark session configured for the pytest interpreter."""
     # Spark launches separate Python workers. Point them explicitly at the
     # interpreter running pytest so Conda, Windows and CI use the same Python.
     os.environ["PYSPARK_PYTHON"] = sys.executable
@@ -32,6 +33,7 @@ def spark():
 
 
 def test_calendar_features_are_forecast_safe_and_correct(spark):
+    """Verify future calendar features use timestamp-only values and expected encodings."""
     df = spark.createDataFrame(
         [(1, "2026-09-06 18:00:00", 10.0)],
         ["LocationID", "pickup_hour", "demand"],
@@ -52,11 +54,13 @@ def test_calendar_features_are_forecast_safe_and_correct(spark):
 
 
 def test_future_feature_contract_contains_only_known_or_historical_features():
+    """Verify the future feature contract excludes target and unavailable lag features."""
     forbidden = {"demand", "lag_1h", "lag_24h", "lag_168h", "rolling_mean_24h"}
     assert forbidden.isdisjoint(FUTURE_FEATURE_COLUMNS)
 
 
 def test_scoring_grid_covers_all_calendar_combinations(spark):
+    """Verify the future scoring grid covers every zone/month/weekday/hour combination."""
     df = spark.createDataFrame(
         [
             (1, "2026-01-01 00:00:00", 2.0),
