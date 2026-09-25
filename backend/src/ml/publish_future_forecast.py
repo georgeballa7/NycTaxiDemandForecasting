@@ -16,6 +16,31 @@ from backend.src.ml.train_future_model import _candidate_pipelines
 
 
 def publish_future_forecast_data():
+    """Build and publish the production future-demand profile snapshot.
+
+    Returns
+    -------
+    None
+        Future profiles, model metrics and metadata are replaced in local
+        PostgreSQL and, when configured, Supabase.
+
+    Raises
+    ------
+    RuntimeError
+        If hourly demand is empty, the model summary is empty/invalid, or the
+        selected production model is unsupported.
+    FileNotFoundError
+        If the persisted future-model summary is missing.
+
+    Notes
+    -----
+    The lowest-MAE/RMSE summary row identifies the production model. A
+    future-safe scoring grid is generated for all profile dimensions. The
+    historical mean baseline is used directly when selected; otherwise the
+    chosen Spark ML pipeline is fitted to all available historical feature
+    data. Predictions are clipped at zero, materialized to Pandas, and Spark
+    is stopped before PostgreSQL COPY publishing.
+    """
     spark = create_spark_session("NYC Taxi Future Forecast Publisher")
     project_root = Path(__file__).resolve().parents[3]
     hourly_path = project_root / "data" / "processed" / "hourly_demand"
