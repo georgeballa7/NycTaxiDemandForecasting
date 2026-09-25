@@ -178,23 +178,34 @@ def replace_historical_model_data_bulk(
     generated_at,
     db_engine,
 ) -> None:
-    """Ersetzt den historischen Serving-Snapshot per PostgreSQL-COPY.
+    """Atomically replace the historical serving snapshot with PostgreSQL COPY.
 
-    Die Vorhersagen werden per COPY in eine temporäre Tabelle derselben
-    Verbindung geladen. Danach werden Metriken, Feature Importances und
-    Vorhersagen innerhalb derselben Transaktion atomar ersetzt.
+    Parameters
+    ----------
+    metrics
+        DataFrame containing model, mae and rmse.
+    feature_importance
+        DataFrame containing feature and importance.
+    predictions
+        DataFrame containing LocationID, pickup_hour, actual_demand and
+        predicted_demand.
+    trained_through
+        Latest historical timestamp represented by the snapshot.
+    generated_at
+        Timestamp at which the snapshot was generated.
+    db_engine
+        SQLAlchemy engine for the target PostgreSQL database.
 
-    Args:
-        metrics: DataFrame mit model, mae und rmse.
-        feature_importance: DataFrame mit feature und importance.
-        predictions: DataFrame mit LocationID, pickup_hour, actual_demand und
-            predicted_demand.
-        trained_through: Letzter historischer Zeitstempel des Snapshots.
-        generated_at: Erzeugungszeitpunkt des Snapshots.
-        db_engine: SQLAlchemy-Engine der PostgreSQL-Zieldatenbank.
+    Returns
+    -------
+    None
+        Metrics, feature importance and predictions are replaced atomically.
 
-    Returns:
-        None.
+    Notes
+    -----
+    Prediction rows are bulk-loaded into a temporary staging table via COPY.
+    The serving tables are replaced within the same transaction, preserving
+    the previous snapshot if any step fails.
     """
     ensure_historical_model_tables(db_engine)
 
