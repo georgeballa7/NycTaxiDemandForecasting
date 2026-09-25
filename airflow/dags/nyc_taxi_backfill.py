@@ -21,9 +21,11 @@ from backend.workflows.ml_pipeline import run_ml_pipeline
     tags=["nyc-taxi", "backfill"],
 )
 def nyc_taxi_backfill():
+    """Define the manually triggered Airflow DAG for sequential TLC month backfills."""
 
     @task
     def process_backfill(**context):
+    """Read DAG parameters and run the requested sequential monthly backfill."""
         params = context["params"]
         return run_backfill(
             start_year=int(params["start_year"]),
@@ -42,6 +44,7 @@ def nyc_taxi_backfill():
 
     @task
     def retrain_model(processed_months: list[str]):
+    """Retrain and republish ML artifacts only when the backfill processed new months."""
         if not processed_months:
             print(
                 "Backfill processed no new TLC months. "
