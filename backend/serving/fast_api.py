@@ -72,11 +72,13 @@ app = FastAPI(
 
 @app.get("/health")
 def health():
+    """Return a simple health payload confirming that the API process is running."""
     return {"status": "ok"}
 
 
 @app.get("/data-range", response_model=DemandDateRangeResponse)
 def get_data_range():
+    """Return the available historical demand date range or HTTP 404 when empty."""
     result = db_get_demand_date_range()
     if result["min_date"] is None or result["max_date"] is None:
         raise HTTPException(status_code=404, detail="No demand data available")
@@ -85,11 +87,13 @@ def get_data_range():
 
 @app.get("/zones", response_model=list[ZoneResponse])
 def get_zones():
+    """Return all taxi-zone reference records."""
     return db_get_zones()
 
 
 @app.get("/metrics", response_model=list[MetricResponse])
 def get_metrics():
+    """Return historical-model metrics or HTTP 404 when none are published."""
     metrics = db_get_historical_model_metrics()
     if not metrics:
         raise HTTPException(status_code=404, detail="No historical model metrics available")
@@ -98,6 +102,7 @@ def get_metrics():
 
 @app.get("/future-model-metrics", response_model=list[FutureModelMetricResponse])
 def get_future_model_metrics():
+    """Return future-model backtest metrics or HTTP 404 when unavailable."""
     metrics = db_get_future_model_metrics()
     if not metrics:
         raise HTTPException(status_code=404, detail="No future model metrics available")
@@ -106,6 +111,7 @@ def get_future_model_metrics():
 
 @app.get("/feature-importance", response_model=list[FeatureImportanceResponse])
 def get_feature_importance():
+    """Return historical feature importances or HTTP 404 when unavailable."""
     feature_importance = db_get_historical_feature_importance()
     if not feature_importance:
         raise HTTPException(status_code=404, detail="No historical feature importance available")
@@ -118,6 +124,7 @@ def get_predictions(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
+    """Return historical actual/predicted demand for a zone and validated optional date range."""
     if start_date is not None and end_date is not None and start_date > end_date:
         raise HTTPException(
             status_code=400,
@@ -136,6 +143,7 @@ def get_predictions(
 
 @app.post("/predict", response_model=FuturePredictionResponse)
 def predict_future_demand(request: FuturePredictionRequest):
+    """Return a future hourly demand estimate using the published profile hierarchy."""
     metadata = db_get_future_forecast_metadata()
     if metadata is None:
         raise HTTPException(
@@ -200,11 +208,13 @@ def predict_future_demand(request: FuturePredictionRequest):
 
 @app.get("/eda/demand-by-hour", response_model=list[DemandByHourResponse])
 def get_demand_by_hour():
+    """Return system-wide demand aggregates by hour of day."""
     return db_get_demand_by_hour()
 
 
 @app.get("/eda/demand-by-weekday", response_model=list[DemandByWeekdayResponse])
 def get_demand_by_weekday():
+    """Return system-wide demand aggregates by weekday."""
     return db_get_demand_by_weekday()
 
 
@@ -213,6 +223,7 @@ def get_demand_over_time(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
+    """Return system-wide daily demand filtered to an optional validated date range."""
     if start_date is not None and end_date is not None and start_date > end_date:
         raise HTTPException(
             status_code=400,
@@ -231,6 +242,7 @@ def get_demand_over_time(
 
 @app.get("/eda/top-zones", response_model=list[TopZoneResponse])
 def get_top_zones(limit: int = 10):
+    """Return highest-demand zones after validating the requested result limit."""
     if limit < 1 or limit > 265:
         raise HTTPException(
             status_code=400,
@@ -248,6 +260,7 @@ def get_zone_demand_by_hour(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
+    """Return hourly demand aggregates for one zone and optional validated date range."""
     if start_date is not None and end_date is not None and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
     result = db_get_zone_demand_by_hour(location_id, start_date, end_date)
@@ -265,6 +278,7 @@ def get_zone_demand_by_weekday(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
+    """Return weekday demand aggregates for one zone and optional validated date range."""
     if start_date is not None and end_date is not None and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
     result = db_get_zone_demand_by_weekday(location_id, start_date, end_date)
@@ -282,6 +296,7 @@ def get_zone_demand_over_time(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
+    """Return daily demand for one zone and optional validated date range."""
     if start_date is not None and end_date is not None and start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
     result = db_get_zone_demand_over_time(location_id, start_date, end_date)
@@ -292,29 +307,35 @@ def get_zone_demand_over_time(
 
 @app.get("/business/summary", response_model=BusinessSummaryResponse)
 def business_summary():
+    """Return aggregate business-performance metrics."""
     return get_business_summary()
 
 
 @app.get("/business/revenue-over-time", response_model=list[RevenueOverTimeResponse])
 def revenue_over_time():
+    """Return daily revenue metrics."""
     return get_revenue_over_time()
 
 
 @app.get("/business/revenue-by-zone", response_model=list[RevenueByZoneResponse])
 def revenue_by_zone(limit: int = 10):
+    """Return revenue metrics ranked by pickup zone."""
     return get_revenue_by_zone(limit=limit)
 
 
 @app.get("/business/payment-breakdown", response_model=list[PaymentBreakdownResponse])
 def payment_breakdown():
+    """Return business metrics grouped by payment method."""
     return get_payment_breakdown()
 
 
 @app.get("/business/tip-analysis", response_model=TipAnalysisResponse)
 def tip_analysis():
+    """Return aggregate recorded credit-card tip metrics."""
     return get_tip_analysis()
 
 
 @app.get("/business/tip-analysis-by-zone", response_model=list[TipAnalysisByZoneResponse])
 def tip_analysis_by_zone(limit: int = 10):
+    """Return recorded credit-card tip metrics ranked by pickup zone."""
     return get_tip_analysis_by_zone(limit=limit)
