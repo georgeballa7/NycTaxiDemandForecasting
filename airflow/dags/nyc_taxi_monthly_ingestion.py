@@ -5,8 +5,11 @@ from urllib import request
 
 from airflow.sdk import dag, task
 
+from backend.src.ml.publish_future_forecast import publish_future_forecast_data
+from backend.src.ml.publish_historical_model import publish_historical_model_data
+from backend.src.ml.train_future_model import train_future_model
+from backend.src.ml.train_model import train_model
 from backend.workflows.monthly_ingestion import run_next_available_month
-from backend.workflows.ml_pipeline import run_ml_pipeline
 
 
 def _post_slack_message(message: str) -> bool:
@@ -113,42 +116,59 @@ def nyc_taxi_monthly_ingestion():
         return run_next_available_month()
 
     @task
-    def retrain_model(ingestion_result: dict):
+    def train_historical_model(ingestion_result: dict):
         if not ingestion_result["processed"]:
-            print(
-                "No new TLC month was processed. "
-                "Skipping ML retraining."
-            )
-            return {
-                "retrained": False,
-                "year": ingestion_result["year"],
-                "month": ingestion_result["month"],
-            }
+            print("No new TLC month was processed. Skipping historical training.")
+            return {**ingestion_result, "trained": False}
 
-        print(
-            "New TLC month processed successfully. "
-            "Starting ML retraining."
-        )
-
-        run_ml_pipeline()
-
-        return {
-            "retrained": True,
-            "year": ingestion_result["year"],
-            "month": ingestion_result["month"],
-        }
+        print("New TLC month processed. Starting historical model training.")
+        spark = train_model()
+        spark.stop()
+        return {**ingestion_result, "trained": True}
 
     @task
-    def notify_slack_success(retraining_result: dict):
-        if not retraining_result["retrained"]:
+    def publish_historical_model(training_result: dict):
+        if not training_result["trained"]:
+            print("Historical training was skipped. Skipping historical publish.")
+            return {**training_result, "published": False}
+
+        publish_historical_model_data()
+        return {**training_result, "published": True}
+
+    @task
+    def train_future_forecast(ingestion_result: dict):
+        if not ingestion_result["processed"]:
+            print("No new TLC month was processed. Skipping future forecast training.")
+            return {**ingestion_result, "trained": False}
+
+        print("New TLC month processed. Starting future forecast training.")
+        future_result = train_future_model()
+        future_result["spark"].stop()
+        return {**ingestion_result, "trained": True}
+
+    @task
+    def publish_future_forecast(training_result: dict):
+        if not training_result["trained"]:
+            print("Future forecast training was skipped. Skipping future publish.")
+            return {**training_result, "published": False}
+
+        publish_future_forecast_data()
+        return {**training_result, "published": True}
+
+    @task
+    def notify_slack_success(
+        historical_result: dict,
+        future_result: dict,
+    ):
+        if not historical_result["published"] and not future_result["published"]:
             print(
-                "No retraining occurred. "
+                "No new TLC month was processed. "
                 "Slack success notification skipped."
             )
             return
 
-        year = retraining_result["year"]
-        month = int(retraining_result["month"])
+        year = historical_result["year"]
+        month = int(historical_result["month"])
 
         message = "\n".join(
             [
@@ -163,8 +183,14 @@ def nyc_taxi_monthly_ingestion():
         _post_slack_message(message)
 
     ingestion_result = process_next_month()
-    retraining_result = retrain_model(ingestion_result)
-    notify_slack_success(retraining_result)
+
+    historical_training = train_historical_model(ingestion_result)
+    historical_publish = publish_historical_model(historical_training)
+
+    future_training = train_future_forecast(ingestion_result)
+    future_publish = publish_future_forecast(future_training)
+
+    notify_slack_success(historical_publish, future_publish)
 
 
 nyc_taxi_monthly_ingestion()
