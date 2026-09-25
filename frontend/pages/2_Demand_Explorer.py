@@ -27,11 +27,13 @@ st.write("Explore taxi demand patterns by borough, taxi zone, time of day and we
 
 @st.cache_data(ttl=300)
 def load_zones():
+    """Load and cache taxi-zone reference data from the API."""
     return get_zones()
 
 
 @st.cache_data(ttl=300)
 def load_data_range():
+    """Load and cache the available demand date range from the API."""
     return get_demand_date_range()
 
 
