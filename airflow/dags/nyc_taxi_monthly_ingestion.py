@@ -115,7 +115,7 @@ def nyc_taxi_monthly_ingestion():
     def process_next_month():
         return run_next_available_month()
 
-    @task
+    @task(pool="spark_ml_pool")
     def train_historical_model(ingestion_result: dict):
         if not ingestion_result["processed"]:
             print("No new TLC month was processed. Skipping historical training.")
@@ -126,7 +126,7 @@ def nyc_taxi_monthly_ingestion():
         spark.stop()
         return {**ingestion_result, "trained": True}
 
-    @task
+    @task(pool="spark_ml_pool")
     def publish_historical_model(training_result: dict):
         if not training_result["trained"]:
             print("Historical training was skipped. Skipping historical publish.")
@@ -135,7 +135,7 @@ def nyc_taxi_monthly_ingestion():
         publish_historical_model_data()
         return {**training_result, "published": True}
 
-    @task
+    @task(pool="spark_ml_pool")
     def train_future_forecast(ingestion_result: dict):
         if not ingestion_result["processed"]:
             print("No new TLC month was processed. Skipping future forecast training.")
@@ -146,7 +146,7 @@ def nyc_taxi_monthly_ingestion():
         future_result["spark"].stop()
         return {**ingestion_result, "trained": True}
 
-    @task
+    @task(pool="spark_ml_pool")
     def publish_future_forecast(training_result: dict):
         if not training_result["trained"]:
             print("Future forecast training was skipped. Skipping future publish.")
