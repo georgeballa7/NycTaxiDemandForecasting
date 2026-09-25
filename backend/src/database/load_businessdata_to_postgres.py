@@ -15,6 +15,27 @@ BUSINESS_TRIPS_PATH = PROCESSED_DATA_DIR / "business_trips"
 
 
 def _monthly_path(root, year: int, month: int):
+    """Build the partition path for one business-trip dataset month.
+
+    Parameters
+    ----------
+    root
+        Root directory of the partitioned dataset.
+    year : int
+        Partition year.
+    month : int
+        Partition month from 1 through 12.
+
+    Returns
+    -------
+    Path
+        Path in year=YYYY/month=MM layout.
+
+    Raises
+    ------
+    ValueError
+        If month is outside 1-12.
+    """
     if not 1 <= month <= 12:
         raise ValueError(
             f"month must be between 1 and 12. Received: {month}"
@@ -23,6 +44,20 @@ def _monthly_path(root, year: int, month: int):
 
 
 def build_fact_trips(business_trips):
+    """Aggregate cleaned trip records to the business fact-table grain.
+
+    Parameters
+    ----------
+    business_trips
+        Spark DataFrame containing cleaned trip-level business fields.
+
+    Returns
+    -------
+    DataFrame
+        Aggregated rows by pickup zone, date, hour and payment type with trip
+        counts and summed monetary/distance measures cast to database-friendly
+        types.
+    """
     fact_trips = (
         business_trips
         .groupBy(
@@ -89,6 +124,18 @@ def build_fact_trips(business_trips):
 
 
 def load_dim_payment(db_engine: Engine = engine):
+    """Upsert the static TLC payment-method dimension into PostgreSQL.
+
+    Parameters
+    ----------
+    db_engine : Engine
+        SQLAlchemy engine for the target PostgreSQL database.
+
+    Returns
+    -------
+    None
+        Payment dimension rows are inserted or updated as a side effect.
+    """
     payment_rows = [
         {"payment_type": 1, "payment_method": "Credit card"},
         {"payment_type": 2, "payment_method": "Cash"},
@@ -116,6 +163,20 @@ def load_dim_payment(db_engine: Engine = engine):
 
 
 def load_fact_trips(fact_trips, db_engine: Engine = engine):
+    """Convert aggregated Spark facts to Pandas and upsert them to PostgreSQL.
+
+    Parameters
+    ----------
+    fact_trips
+        Aggregated Spark DataFrame at fact_trips grain.
+    db_engine : Engine
+        SQLAlchemy engine for the target PostgreSQL database.
+
+    Returns
+    -------
+    None
+        fact_trips is upserted as a database side effect.
+    """
     print("Converting aggregated fact data to Pandas...")
     fact_trips_pd = fact_trips.toPandas()
     print(f"Aggregated rows: {len(fact_trips_pd):,}")
@@ -132,6 +193,18 @@ def load_fact_trips(fact_trips, db_engine: Engine = engine):
 
 
 def validate_load(db_engine: Engine = engine):
+    """Print basic integrity statistics for the persisted business fact table.
+
+    Parameters
+    ----------
+    db_engine : Engine
+        SQLAlchemy engine for the target PostgreSQL database.
+
+    Returns
+    -------
+    None
+        Row count, trip total, date range and hour range are printed.
+    """
     query = text(
         f"""
         SELECT
@@ -162,6 +235,28 @@ def main(
     month: int | None = None,
     db_engine: Engine = engine,
 ):
+    """Run the complete business-data PostgreSQL loading workflow.
+
+    Parameters
+    ----------
+    year : int or None
+        Year for a monthly incremental load; supplied together with month.
+    month : int or None
+        Month for a monthly incremental load; supplied together with year.
+    db_engine : Engine
+        SQLAlchemy engine for the target PostgreSQL database.
+
+    Returns
+    -------
+    None
+        Business facts and payment dimensions are persisted and validated;
+        the Spark session is stopped before completion.
+
+    Raises
+    ------
+    ValueError
+        If only one date component is supplied or month is invalid.
+    """
     if (year is None) != (month is None):
         raise ValueError(
             "year and month must either both be provided or both be omitted."
