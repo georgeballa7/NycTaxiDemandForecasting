@@ -18,6 +18,31 @@ from backend.src.persistence.load_parquet import load_parquet
 
 
 def publish_historical_model_data():
+    """Publish the historical-model serving snapshot to PostgreSQL targets.
+
+    Returns
+    -------
+    None
+        Metrics, feature importance and historical predictions are replaced
+        in the configured serving databases.
+
+    Raises
+    ------
+    RuntimeError
+        If no historical predictions are available.
+    FileNotFoundError
+        If model metrics or feature-importance artifacts are missing.
+    OperationalError
+        If Supabase publishing still fails after all retry attempts.
+
+    Notes
+    -----
+    Predictions are joined to valid zones and materialized to Pandas together
+    with CSV metrics and feature importance. Spark is stopped before database
+    I/O. The local snapshot is replaced first using PostgreSQL COPY; Supabase
+    uses the same bulk path with up to three attempts and a five-second wait
+    after connection failures.
+    """
     spark = create_spark_session("NYC Taxi Historical Model Publisher")
 
     try:
