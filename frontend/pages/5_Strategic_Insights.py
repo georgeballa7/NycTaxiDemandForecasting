@@ -22,6 +22,7 @@ st.caption("Turning demand forecasting and business analytics into practical fle
 
 @st.cache_data(ttl=300)
 def load_strategic_data():
+    """Load and cache summary, demand-zone and revenue-zone data for strategy."""
     return (
         get_business_summary(),
         get_top_zones(limit=10),
