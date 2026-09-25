@@ -7,6 +7,24 @@ from pyspark.sql import SparkSession
 
 
 def create_spark_session(app_name: str = "NYC Taxi Demand Forecasting"):
+    """Create the locally configured Spark session used by the project.
+
+    Parameters
+    ----------
+    app_name : str
+        Name shown for the Spark application.
+
+    Returns
+    -------
+    SparkSession
+        Existing compatible Spark session or a newly created local session.
+
+    Notes
+    -----
+    The session runs on local[8], binds the driver to localhost, assigns 8 GB
+    of driver memory, extends network and heartbeat timeouts, and uses 200 SQL
+    shuffle partitions.
+    """
     return (
         SparkSession.builder
         .appName(app_name)
