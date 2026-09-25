@@ -10,6 +10,27 @@ from backend.src.database.upsert import upsert_dataframe
 
 
 def _monthly_path(root, year: int, month: int):
+    """Build the partition path for one prepared demand-data month.
+
+    Parameters
+    ----------
+    root
+        Root directory of the partitioned EDA dataset.
+    year : int
+        Partition year.
+    month : int
+        Partition month from 1 through 12.
+
+    Returns
+    -------
+    Path
+        Path in year=YYYY/month=MM layout.
+
+    Raises
+    ------
+    ValueError
+        If month is outside 1-12.
+    """
     if not 1 <= month <= 12:
         raise ValueError(
             f"month must be between 1 and 12. Received: {month}"
@@ -22,6 +43,33 @@ def load_demanddata_to_postgres(
     month: int | None = None,
     db_engine: Engine = engine,
 ):
+    """Load prepared demand data and dimensions into PostgreSQL.
+
+    Parameters
+    ----------
+    year : int or None
+        Year for a monthly incremental load; supplied together with month.
+    month : int or None
+        Month for a monthly incremental load; supplied together with year.
+    db_engine : Engine
+        SQLAlchemy engine for the target PostgreSQL database.
+
+    Returns
+    -------
+    None
+        Dimension and fact tables are upserted as a side effect.
+
+    Raises
+    ------
+    ValueError
+        If only one date component is supplied or month is invalid.
+
+    Notes
+    -----
+    The function reads taxi zones and prepared zone-hour demand, constructs
+    dim_zone, dim_date, dim_hour and fact_demand, derives calendar fields and
+    day parts, then performs idempotent PostgreSQL upserts.
+    """
     if (year is None) != (month is None):
         raise ValueError(
             "year and month must either both be provided or both be omitted."
@@ -85,6 +133,18 @@ def load_demanddata_to_postgres(
     dim_hour = pd.DataFrame({"hour": list(range(24))})
 
     def get_day_part(hour):
+        """Map an integer hour to the project's four day-part categories.
+
+        Parameters
+        ----------
+        hour
+            Hour of day expected in the range 0-23.
+
+        Returns
+        -------
+        str
+            Night, Morning, Afternoon, or Evening.
+        """
         if 0 <= hour <= 5:
             return "Night"
         if 6 <= hour <= 11:
