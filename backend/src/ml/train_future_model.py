@@ -24,13 +24,42 @@ MODEL_NAMES = [
 
 
 def select_production_model(summary):
-    """Select the lowest-MAE model, using RMSE as the tie-breaker."""
+    """Select the production model from aggregated backtest metrics.
+
+    Parameters
+    ----------
+    summary
+        Iterable of model-result dictionaries containing model, mae and rmse.
+
+    Returns
+    -------
+    str
+        Name of the model with the lowest MAE, using RMSE as tie-breaker.
+
+    Raises
+    ------
+    ValueError
+        If the summary is empty.
+    """
     if not summary:
         raise ValueError("Model summary must not be empty.")
     return min(summary, key=lambda item: (item["mae"], item["rmse"]))["model"]
 
 
 def _build_pipeline(regressor):
+    """Build a Spark ML pipeline around a supplied regression estimator.
+
+    Parameters
+    ----------
+    regressor
+        Spark ML regression estimator configured to predict demand.
+
+    Returns
+    -------
+    Pipeline
+        Pipeline that indexes and one-hot encodes LocationID, assembles the
+        future-safe feature vector, and applies the supplied regressor.
+    """
     location_indexer = StringIndexer(
         inputCol="LocationID",
         outputCol="location_index",
@@ -49,6 +78,14 @@ def _build_pipeline(regressor):
 
 
 def _candidate_pipelines():
+    """Create the trainable regression candidates used in model selection.
+
+    Returns
+    -------
+    dict
+        Mapping from model name to configured Spark ML Pipeline for linear
+        regression, Random Forest and gradient-boosted trees.
+    """
     return {
         "linear_regression": _build_pipeline(
             LinearRegression(
@@ -85,6 +122,29 @@ def _candidate_pipelines():
 
 
 def train_future_model():
+    """Backtest candidate future-demand models and select production model.
+
+    Returns
+    -------
+    dict
+        Spark session, per-month backtest results, aggregated model summary,
+        selected production-model name, and latest historical timestamp.
+
+    Raises
+    ------
+    RuntimeError
+        If hourly demand is empty, no backtest months exist, or a rolling
+        train/test split is empty.
+
+    Notes
+    -----
+    Historical profile features are built from hourly demand and rows missing
+    future-safe features are excluded. The latest four calendar months are
+    evaluated as rolling holdouts. A zone/day-of-week/hour mean baseline is
+    compared with linear regression, Random Forest and gradient-boosted trees
+    using MAE and RMSE. Mean backtest metrics determine the production model
+    and both detailed and summary CSV files are persisted.
+    """
     spark = create_spark_session("NYC Taxi Future Model Selection")
     project_root = Path(__file__).resolve().parents[3]
     hourly_path = project_root / "data" / "processed" / "hourly_demand"
