@@ -7,21 +7,23 @@ from pyspark.sql import Window
 
 
 def add_time_features(df: DataFrame) -> DataFrame:
-    """
-    Ergänzt Zeit- und Zyklusmerkmale für die Nachfrageprognose.
+    """Add calendar and cyclical time features for demand modelling.
 
-    Aus ``pickup_hour`` werden Stunde, Wochentag und Kalendertag abgeleitet.
-    Zusätzlich wird markiert, ob der Zeitpunkt auf ein Wochenende fällt. Stunde
-    und Wochentag werden außerdem mit Sinus- und Kosinuswerten zyklisch kodiert,
-    damit z. B. 23 Uhr und 0 Uhr im Modell als zeitlich benachbart behandelt werden.
+    Parameters
+    ----------
+    df : DataFrame
+        Spark DataFrame containing pickup_hour.
 
-    Args:
-        df: PySpark-DataFrame mit der Spalte ``pickup_hour``.
+    Returns
+    -------
+    DataFrame
+        Input rows extended with hour, day_of_week, day_of_month, is_weekend,
+        hour_sin, hour_cos, dow_sin and dow_cos.
 
-    Returns:
-        DataFrame mit den zusätzlichen Spalten ``hour``, ``day_of_week``,
-        ``day_of_month``, ``is_weekend``, ``hour_sin``, ``hour_cos``,
-        ``dow_sin`` und ``dow_cos``.
+    Notes
+    -----
+    Hour and weekday are encoded with sine/cosine pairs so their cyclical
+    proximity is represented numerically; Spark day-of-week uses Sunday=1.
     """
     return (
         df
@@ -52,20 +54,23 @@ def add_time_features(df: DataFrame) -> DataFrame:
 
 
 def add_lag_features(df: DataFrame) -> DataFrame:
-    """
-    Ergänzt verzögerte Nachfragewerte je Taxi-Zone.
+    """Add zone-specific historical demand lag features.
 
-    Die Daten werden pro ``LocationID`` chronologisch nach ``pickup_hour``
-    betrachtet. Für jede Zeile werden die Nachfragewerte von einer Stunde,
-    24 Stunden und 168 Stunden zuvor als zusätzliche Merkmale übernommen.
+    Parameters
+    ----------
+    df : DataFrame
+        Spark DataFrame containing LocationID, pickup_hour and demand.
 
-    Args:
-        df: PySpark-DataFrame mit ``LocationID``, ``pickup_hour`` und ``demand``.
+    Returns
+    -------
+    DataFrame
+        Input rows extended with lag_1h, lag_24h and lag_168h. Lag values are
+        null when insufficient history exists.
 
-    Returns:
-        DataFrame mit den zusätzlichen Spalten ``lag_1h``, ``lag_24h`` und
-        ``lag_168h``. Fehlt für einen Zeitpunkt ausreichend Historie, bleibt der
-        jeweilige Lag-Wert null.
+    Notes
+    -----
+    Rows are partitioned by LocationID and ordered chronologically, so each
+    feature uses only earlier observations from the same taxi zone.
     """
 
     zone_window = (
@@ -83,21 +88,23 @@ def add_lag_features(df: DataFrame) -> DataFrame:
 
 
 def add_rolling_features(df: DataFrame) -> DataFrame:
-    """
-    Berechnet rollierende Nachfragekennzahlen je Taxi-Zone.
+    """Add leakage-safe rolling demand statistics for each taxi zone.
 
-    Für jede ``LocationID`` werden ausschließlich vorherige Beobachtungen
-    verwendet: die letzten 24 bzw. 168 Zeilen vor dem aktuellen Zeitpunkt.
-    Neben dem Mittelwert wird jeweils gezählt, wie viele historische
-    Nachfragewerte tatsächlich im Fenster vorhanden sind.
+    Parameters
+    ----------
+    df : DataFrame
+        Spark DataFrame containing LocationID, pickup_hour and demand.
 
-    Args:
-        df: PySpark-DataFrame mit ``LocationID``, ``pickup_hour`` und ``demand``.
+    Returns
+    -------
+    DataFrame
+        Rows extended with 24-hour and 168-hour rolling means plus the number
+        of historical demand observations present in each window.
 
-    Returns:
-        DataFrame mit ``rolling_mean_24h``, ``history_count_24h``,
-        ``rolling_mean_168h`` und ``history_count_168h``. Der aktuelle
-        Nachfragewert selbst wird nicht in die rollierenden Fenster einbezogen.
+    Notes
+    -----
+    Windows cover only the preceding 24 or 168 rows and explicitly exclude
+    the current demand value, preventing target leakage.
     """
 
     zone_window = (
