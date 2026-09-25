@@ -9,6 +9,28 @@ def clean_trip_data(
     start_date: datetime,
     end_date: datetime,
 ) -> DataFrame:
+    """Filter raw trips to the requested period and remove correction pairs.
+
+    Parameters
+    ----------
+    trips : DataFrame
+        Raw TLC trip-level Spark DataFrame.
+    start_date : datetime
+        Inclusive lower bound for pickup time.
+    end_date : datetime
+        Exclusive upper bound for pickup time.
+
+    Returns
+    -------
+    DataFrame
+        Chronologically valid trips after correction groups are removed.
+
+    Notes
+    -----
+    Trips with drop-off before pickup are removed. Duplicate groups sharing
+    the project trip key are treated as corrections when they contain both
+    negative and non-negative fares; those groups are removed completely.
+    """
 
     cleaned = trips.filter(
         (F.col("tpep_pickup_datetime") >= F.lit(start_date)) &
