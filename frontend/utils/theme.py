@@ -11,7 +11,13 @@ SUCCESS_GREEN = "#2E7D32"
 
 
 def apply_streamlit_theme():
-    """Apply a restrained NYC Yellow Cab visual identity to Streamlit."""
+    """Apply the shared NYC Yellow Cab CSS theme to the Streamlit application.
+
+    Returns
+    -------
+    None
+        CSS is injected into the current Streamlit page as a side effect.
+    """
 
     st.markdown(
         f"""
@@ -79,6 +85,7 @@ def apply_streamlit_theme():
 
 
 def page_accent():
+    """Render the short taxi-yellow accent bar used beneath page headings."""
     st.markdown(
         '<div class="taxi-accent"></div>',
         unsafe_allow_html=True,
@@ -86,7 +93,19 @@ def page_accent():
 
 
 def apply_taxi_plotly_theme(fig):
-    """Apply the NYC Yellow Cab visual identity to a Plotly figure."""
+    """Apply the shared NYC Yellow Cab styling to a Plotly figure.
+
+    Parameters
+    ----------
+    fig
+        Plotly figure whose trace colors and layout should be normalized.
+
+    Returns
+    -------
+    Figure
+        The same figure after bar, line, pie, background, grid and legend
+        styling has been applied.
+    """
 
     for trace in fig.data:
         if trace.type == "bar":
