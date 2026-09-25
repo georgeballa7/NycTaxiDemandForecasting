@@ -30,6 +30,26 @@ FEATURE_COLUMNS = [
 
 
 def train_model():
+    """Train and evaluate the historical hourly-demand Random Forest model.
+
+    Returns
+    -------
+    SparkSession
+        Active Spark session used for training; the caller must stop it.
+
+    Raises
+    ------
+    RuntimeError
+        If no feature timestamp is available for training.
+
+    Notes
+    -----
+    Persisted features are restricted to rows with a complete 168-hour
+    history. The latest calendar month is held out as the test set. A 24-hour
+    persistence baseline and Random Forest are evaluated with MAE and RMSE;
+    feature importance, model metrics, test predictions and the trained model
+    are persisted under data/processed.
+    """
     spark = create_spark_session("NYC Taxi Demand - ML")
 
     project_root = Path(__file__).resolve().parents[3]
