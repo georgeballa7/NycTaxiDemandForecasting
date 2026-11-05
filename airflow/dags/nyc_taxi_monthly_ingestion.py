@@ -129,7 +129,7 @@ def notify_slack_failure(context):
 @dag(
     dag_id="nyc_taxi_monthly_ingestion",
     start_date=datetime(2026, 1, 1),
-    schedule="0 19 * * 5",
+    schedule="0 19 L * *",
     catchup=False,
     max_active_runs=1,
     default_args={
