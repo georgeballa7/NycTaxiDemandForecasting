@@ -148,10 +148,8 @@ def replace_historical_model_data(
                 )
                 """
             )
-            # Keep batches deliberately small for remote PostgreSQL/Supabase.
-            # The Parquet file is compact on disk, but the snapshot expands to
-            # many SQL rows and large executemany calls can exhaust a pooled
-            # connection or hit remote transaction/network limits.
+            # Keep batches deliberately small to bound executemany memory usage.
+            # The Parquet snapshot expands to many SQL rows.
             batch_size = 500
             total_rows = len(prediction_rows)
             progress_interval = 10_000
