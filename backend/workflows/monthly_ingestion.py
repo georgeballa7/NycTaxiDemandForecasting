@@ -1,7 +1,7 @@
 from datetime import date
 
 from backend.src.config.settings import RAW_DATA_DIR
-from backend.src.database.connection import engine, supabase_engine
+from backend.src.database.connection import engine
 from backend.src.database.pipeline_state import (
     get_last_successful_month,
     mark_failed,
@@ -27,24 +27,14 @@ def _source_filename(year: int, month: int) -> str:
     return f"yellow_tripdata_{year}-{month:02d}.parquet"
 
 
-def _state_engines():
-    """Return the database engines on which pipeline state must be recorded."""
-    engines = [engine]
-    if supabase_engine is not None:
-        engines.append(supabase_engine)
-    return engines
-
-
 def _mark_all_running(dataset_month: date, source_file: str) -> None:
-    """Mark the dataset month RUNNING in every configured state database."""
-    for db_engine in _state_engines():
-        mark_running(db_engine, dataset_month, source_file)
+    """Mark the dataset month RUNNING in local PostgreSQL."""
+    mark_running(engine, dataset_month, source_file)
 
 
 def _mark_all_success(dataset_month: date, source_file: str) -> None:
-    """Mark the dataset month SUCCESS in every configured state database."""
-    for db_engine in _state_engines():
-        mark_success(db_engine, dataset_month, source_file)
+    """Mark the dataset month SUCCESS in local PostgreSQL."""
+    mark_success(engine, dataset_month, source_file)
 
 
 def _mark_all_failed(
@@ -52,24 +42,11 @@ def _mark_all_failed(
     source_file: str,
     error_message: str,
 ) -> None:
-    """Mark a dataset month FAILED in every configured state database.
-
-    State-write errors are logged and suppressed so an unavailable secondary
-    database does not hide the original pipeline failure.
-    """
-    for db_engine in _state_engines():
-        try:
-            mark_failed(
-                db_engine,
-                dataset_month,
-                source_file,
-                error_message,
-            )
-        except Exception as state_error:
-            print(
-                "Could not persist FAILED pipeline state: "
-                f"{state_error}"
-            )
+    """Record a failed month locally without masking the original error."""
+    try:
+        mark_failed(engine, dataset_month, source_file, error_message)
+    except Exception as state_error:
+        print(f"Could not persist FAILED pipeline state: {state_error}")
 
 
 def process_month(year: int, month: int) -> bool:
@@ -90,7 +67,7 @@ def process_month(year: int, month: int) -> bool:
 
     Notes
     -----
-    RUNNING/SUCCESS/FAILED state is mirrored to all configured state engines.
+    RUNNING/SUCCESS/FAILED state is recorded in local PostgreSQL.
     Processing exceptions are recorded as FAILED and then re-raised.
     """
 
