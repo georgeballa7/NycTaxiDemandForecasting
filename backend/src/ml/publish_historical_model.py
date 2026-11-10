@@ -1,15 +1,11 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from time import sleep
-
-from sqlalchemy.exc import OperationalError
 
 import pandas as pd
 from pyspark.sql import functions as F
 
-from backend.src.database.connection import engine, supabase_engine
+from backend.src.database.connection import engine
 from backend.src.database.historical_model_repo import (
-    replace_historical_model_data,
     replace_historical_model_data_bulk,
 )
 from backend.src.ingestion.spark_session import create_spark_session
@@ -18,13 +14,13 @@ from backend.src.persistence.load_parquet import load_parquet
 
 
 def publish_historical_model_data():
-    """Publish the historical-model serving snapshot to PostgreSQL targets.
+    """Publish the historical-model serving snapshot to local PostgreSQL.
 
     Returns
     -------
     None
         Metrics, feature importance and historical predictions are replaced
-        in the configured serving databases.
+        in the local serving database.
 
     Raises
     ------
@@ -32,16 +28,12 @@ def publish_historical_model_data():
         If no historical predictions are available.
     FileNotFoundError
         If model metrics or feature-importance artifacts are missing.
-    OperationalError
-        If Supabase publishing still fails after all retry attempts.
 
     Notes
     -----
     Predictions are joined to valid zones and materialized to Pandas together
     with CSV metrics and feature importance. Spark is stopped before database
-    I/O. The local snapshot is replaced first using PostgreSQL COPY; Supabase
-    uses the same bulk path with up to three attempts and a five-second wait
-    after connection failures.
+    I/O. The local snapshot is replaced using PostgreSQL COPY.
     """
     spark = create_spark_session("NYC Taxi Historical Model Publisher")
 
@@ -112,39 +104,6 @@ def publish_historical_model_data():
             generated_at,
             engine,
         )
-
-        if supabase_engine is not None:
-            max_attempts = 3
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    print(
-                        "Publishing historical model snapshot to Supabase PostgreSQL "
-                        f"(attempt {attempt}/{max_attempts})..."
-                    )
-                    replace_historical_model_data_bulk(
-                        metrics,
-                        feature_importance,
-                        predictions_pd,
-                        trained_through,
-                        generated_at,
-                        supabase_engine,
-                    )
-                    break
-                except OperationalError:
-                    supabase_engine.dispose()
-                    if attempt == max_attempts:
-                        raise
-                    wait_seconds = 5
-                    print(
-                        "Supabase connection failed during historical snapshot "
-                        f"publishing. Retrying in {wait_seconds} seconds..."
-                    )
-                    sleep(wait_seconds)
-        else:
-            print(
-                "SUPABASE_DATABASE_URL is not configured; "
-                "historical model Supabase publish skipped."
-            )
 
         print("Historical model database snapshot published.")
         print(f"Trained through: {trained_through}")
