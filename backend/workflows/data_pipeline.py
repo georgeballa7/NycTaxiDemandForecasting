@@ -1,6 +1,6 @@
 from sqlalchemy import text
 
-from backend.src.database.connection import engine, supabase_engine
+from backend.src.database.connection import engine
 from backend.src.database.load_businessdata_to_postgres import (
     main as load_businessdata_to_postgres,
 )
@@ -103,7 +103,7 @@ def run_monthly_data_pipeline(year: int, month: int) -> None:
     -------
     None
         Monthly demand/features, business and EDA artifacts are built and
-        loaded into local PostgreSQL and Supabase when configured.
+        loaded into local PostgreSQL.
 
     Notes
     -----
@@ -121,15 +121,6 @@ def run_monthly_data_pipeline(year: int, month: int) -> None:
 
     print("Loading monthly data into local/default PostgreSQL...")
     _load_month_into_database(year, month, engine)
-
-    if supabase_engine is not None:
-        print("Loading monthly data into Supabase PostgreSQL...")
-        _load_month_into_database(year, month, supabase_engine)
-    else:
-        print(
-            "SUPABASE_DATABASE_URL is not configured; "
-            "Supabase load skipped."
-        )
 
     print(f"Monthly data pipeline completed for {year}-{month:02d}.")
 
