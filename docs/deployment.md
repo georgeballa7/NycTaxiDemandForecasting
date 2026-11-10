@@ -1,36 +1,37 @@
 # Deployment
 
-The hosted application separates database persistence, API serving, frontend hosting and continuous integration.
+The supported runtime uses local PostgreSQL for analytics and model-serving data. FastAPI serves this database to Streamlit. Docker Compose runs Airflow and its separate metadata PostgreSQL service.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
+    TLC[NYC TLC Parquet] --> Airflow[Airflow / Docker]
+    Airflow --> Spark[PySpark + ML]
+    Spark --> DB[(Local PostgreSQL / nyc_taxi_analytics)]
+    DB --> API[Local FastAPI]
+    API --> UI[Local Streamlit]
     GH[GitHub] --> CI[GitHub Actions / pytest]
-    GH --> Render[Render / FastAPI]
-    GH --> ST[Streamlit Cloud]
-    Airflow[Airflow / Docker] --> Supabase[(Supabase PostgreSQL)]
-    Render --> Supabase
-    ST --> Render
 ```
 
 | Technology | Use in the project |
 |---|---|
-| **Supabase PostgreSQL** | Hosted analytical and model-serving database |
-| **Render** | Hosts the FastAPI backend |
-| **Streamlit Community Cloud** | Hosts the interactive frontend |
-| **Docker Compose** | Runs the local Airflow environment consistently |
-| **GitHub Actions** | Runs pytest automatically on code changes |
+| **Local PostgreSQL** | Analytics and model-serving database |
+| **FastAPI** | Local API for dashboard and forecasting |
+| **Streamlit** | Local interactive dashboard |
+| **Docker Compose** | Airflow and separate metadata database |
+| **GitHub Actions** | Automated tests on code changes |
 
 ## Configuration & CI
 
-Environment-specific values such as database connections, API endpoints and Slack configuration are supplied through environment variables rather than committed secrets.
+Set `DATABASE_URL` for local FastAPI and ML processes. Airflow containers receive `DATABASE_URL` from `AIRFLOW_DATABASE_URL`; use a hostname reachable from Docker (for example, `host.docker.internal` on Docker Desktop), not container-local `localhost`.
 
-GitHub Actions installs the Python dependencies and Java required by PySpark, then runs the focused pytest suite on pushes and pull requests to `main`. Tests use isolated configuration rather than production database credentials.
+Keep credentials, API endpoints and Slack configuration in local environment variables or untracked secrets. Do not commit credentials.
 
-A TLC data refresh is handled by Airflow and the backend pipeline. Application deployment is required when code, dependencies or infrastructure configuration changes.
+GitHub Actions runs focused pytest tests on pushes and pull requests to `main` with isolated test configuration. Monthly TLC refreshes are handled by Airflow and the backend pipeline.
 
-## Production Links
+After code updates, restart affected local services.
 
-- Streamlit: https://george-nyc-taxi-analytics.streamlit.app/
-- FastAPI: https://nyc-taxi-api-555f.onrender.com
+## Legacy hosted endpoints
+
+Previously hosted Streamlit and Render endpoints are not part of the local-only database architecture and are not validated by this migration.
