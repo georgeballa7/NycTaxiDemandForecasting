@@ -13,7 +13,7 @@ flowchart LR
     DB --> API[FastAPI]
 ```
 
-**PySpark** handles cleaning, feature preparation and aggregation because the trip data is large enough to benefit from distributed DataFrame processing. **PostgreSQL** stores structured analytics and serving tables; the same relational model is published to **Supabase PostgreSQL** for the hosted application. Repository modules isolate SQL access from the API and frontend.
+**PySpark** handles cleaning, feature preparation and aggregation because the trip data is large enough to benefit from distributed DataFrame processing. **PostgreSQL** stores structured analytics and serving tables for the local application. Repository modules isolate SQL access from the API and frontend.
 
 ## Data Model
 
