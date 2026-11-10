@@ -1,12 +1,9 @@
 from datetime import datetime
 
 from airflow.sdk import dag, task
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
-from backend.src.config.settings import (
-    DATABASE_URL,
-    SUPABASE_DATABASE_URL,
-)
+from backend.src.database.connection import engine
 
 
 @dag(
@@ -17,41 +14,20 @@ from backend.src.config.settings import (
     tags=["test", "database"],
 )
 def test_database_connections():
-    """Define a manual DAG that tests local and Supabase PostgreSQL connectivity."""
+    """Define a manual DAG to verify local analytics PostgreSQL connectivity."""
 
     @task
     def check_local_database():
-    """Connect to local PostgreSQL and print the current database name."""
-        engine = create_engine(DATABASE_URL)
-
+        """Connect to local PostgreSQL and print the database name."""
         with engine.connect() as connection:
-            result = connection.execute(
+            database_name = connection.execute(
                 text("SELECT current_database()")
             ).scalar()
 
-        print(f"Local PostgreSQL connection successful.")
-        print(f"Database: {result}")
-
-    @task
-    def check_supabase_database():
-    """Connect to Supabase PostgreSQL and print the current database name."""
-        if not SUPABASE_DATABASE_URL:
-            raise RuntimeError(
-                "SUPABASE_DATABASE_URL is not set."
-            )
-
-        engine = create_engine(SUPABASE_DATABASE_URL)
-
-        with engine.connect() as connection:
-            result = connection.execute(
-                text("SELECT current_database()")
-            ).scalar()
-
-        print("Supabase PostgreSQL connection successful.")
-        print(f"Database: {result}")
+        print("Local PostgreSQL connection successful.")
+        print(f"Database: {database_name}")
 
     check_local_database()
-    check_supabase_database()
 
 
 test_database_connections()
