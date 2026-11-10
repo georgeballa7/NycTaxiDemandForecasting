@@ -14,7 +14,7 @@ def test_airflow_setup():
 
     @task
     def say_hello():
-    """Print a confirmation message to verify task execution."""
+        """Print a confirmation message to verify task execution."""
         print("Airflow is running correctly for the NYC Taxi project.")
 
     say_hello()
