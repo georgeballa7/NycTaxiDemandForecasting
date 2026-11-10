@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 from pyspark.sql import functions as F
 
-from backend.src.database.connection import engine, supabase_engine
+from backend.src.database.connection import engine
 from backend.src.database.future_forecast_repo import replace_future_forecast_data
 from backend.src.features.build_future_features import (
     FUTURE_FEATURE_COLUMNS,
@@ -22,7 +22,7 @@ def publish_future_forecast_data():
     -------
     None
         Future profiles, model metrics and metadata are replaced in local
-        PostgreSQL and, when configured, Supabase.
+        PostgreSQL.
 
     Raises
     ------
@@ -125,24 +125,13 @@ def publish_future_forecast_data():
 
         # Spark is no longer needed after materialisation. Stop it before the
         # potentially slow SQL uploads so the executor does not emit heartbeat
-        # warnings while PostgreSQL/Supabase publishing is in progress.
+        # warnings while PostgreSQL publishing is in progress.
         hourly_demand.unpersist()
         spark.stop()
         spark = None
 
         print("Publishing future forecast snapshot to local PostgreSQL...")
         replace_future_forecast_data(profiles_pandas, metrics, metadata, engine)
-
-        if supabase_engine is not None:
-            print("Publishing future forecast snapshot to Supabase PostgreSQL...")
-            replace_future_forecast_data(
-                profiles_pandas, metrics, metadata, supabase_engine
-            )
-        else:
-            print(
-                "SUPABASE_DATABASE_URL is not configured; "
-                "future forecast Supabase publish skipped."
-            )
 
         print("Future forecast database snapshot published.")
         print(f"Production model: {production_model}")
