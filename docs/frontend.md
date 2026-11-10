@@ -2,8 +2,6 @@
 
 **Streamlit** provides the interactive analytics interface, while **Plotly** supports interactive visualisations. The frontend consumes **FastAPI** responses instead of running PySpark, training models or querying large processing datasets itself.
 
-**Live application:** https://george-nyc-taxi-analytics.streamlit.app/
-
 ## Use Cases
 
 - Explore taxi demand and trip behaviour across zones and time periods.
