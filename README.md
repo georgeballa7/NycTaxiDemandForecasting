@@ -2,7 +2,7 @@
 
 An end-to-end analytics project for NYC Yellow Taxi demand: automated TLC ingestion, PySpark processing, PostgreSQL, machine learning, FastAPI, Streamlit and Airflow.
 
-**Live app:** https://george-nyc-taxi-analytics.streamlit.app/
+**Local app:** Run FastAPI and Streamlit against local PostgreSQL (see below).
 
 ## End-to-End Process
 
@@ -10,7 +10,7 @@ An end-to-end analytics project for NYC Yellow Taxi demand: automated TLC ingest
 flowchart LR
     TLC[NYC TLC monthly Parquet] --> ING[Availability check & ingestion]
     ING --> SPARK[PySpark cleaning & aggregation]
-    SPARK --> DATA[(PostgreSQL / Supabase)]
+    SPARK --> DATA[(Local PostgreSQL)]
     SPARK --> HIST[Historical model evaluation]
     SPARK --> FUT[Future model backtesting]
     HIST --> DATA
@@ -27,7 +27,7 @@ flowchart LR
 
 1. Airflow checks whether the next TLC monthly file is available.
 2. New trip data is ingested, cleaned and aggregated with PySpark.
-3. Analytical tables are persisted to PostgreSQL and the hosted Supabase database.
+3. Analytical tables are persisted to local PostgreSQL.
 4. Historical demand modelling evaluates prediction quality using observed-history features.
 5. Future forecasting compares forecast-safe candidate models with rolling temporal backtests and selects the best validated model automatically.
 6. Published analytics, metrics and forecasts are served by FastAPI.
@@ -36,7 +36,7 @@ flowchart LR
 
 ## Local Execution
 
-Run from the repository root and configure the required environment variables in `.env`.
+Run from the repository root and set `DATABASE_URL` in your local `.env` for the `nyc_taxi_analytics` database. Dockerized Airflow receives `DATABASE_URL` from `AIRFLOW_DATABASE_URL`, which must point to a host reachable from the containers. Do not commit credentials.
 
 ```bash
 # 1. Install dependencies
@@ -52,7 +52,7 @@ python -m backend.workflows.ml_pipeline
 uvicorn backend.serving.fast_api:app --reload
 
 # 5. In a second terminal, start Streamlit
-streamlit run frontend/Home.py
+streamlit run streamlit_app.py
 
 # 6. Run tests
 pytest -q
@@ -63,8 +63,8 @@ pytest -q
 - [Backend](docs/backend.md) — data model, processing, ML and API
 - [Orchestration](docs/orchestration.md) — Airflow update workflow
 - [Frontend](docs/frontend.md) — use cases, Streamlit UI and report download
-- [Deployment](docs/deployment.md) — hosted architecture and CI
+- [Deployment](docs/deployment.md) — local deployment and CI
 
 ## Tech Stack
 
-Python · PySpark · PostgreSQL · Supabase · Spark ML · FastAPI · Streamlit · Airflow · Docker · pytest · GitHub Actions
+Python · PySpark · PostgreSQL · Spark ML · FastAPI · Streamlit · Airflow · Docker · pytest · GitHub Actions
